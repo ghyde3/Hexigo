@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tile } from '../lib/types';
+import { Tile, Port as PortType } from '../lib/types';
 import HexTile from './HexTile';
+import Port from './Port';
 
 interface GameBoardProps {
   tiles: Tile[];
+  ports?: PortType[];
   onTileClick?: (tile: Tile) => void;
   isEditMode?: boolean;
   onToggleEditMode?: () => void;
@@ -17,6 +19,7 @@ interface PlacedTile {
 
 const GameBoard: React.FC<GameBoardProps> = ({ 
   tiles, 
+  ports = [],
   onTileClick,
   isEditMode = false,
   onToggleEditMode
@@ -32,6 +35,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
   const [ySpacing, setYSpacing] = useState(0.52); // Updated default vertical spacing
   const [snapThreshold, setSnapThreshold] = useState(0.1); // Default snap threshold
   const gridRef = useRef<HTMLDivElement>(null);
+  const [showWaterBorder, setShowWaterBorder] = useState(true); // New state for water border
 
   // Responsive sizing
   useEffect(() => {
@@ -400,35 +404,90 @@ const GameBoard: React.FC<GameBoardProps> = ({
   const coordinateOutput = generateCoordinateOutput();
 
   return (
-    <div className="flex flex-col items-center w-full">
-      {/* Top bar with controls */}
-      <div className="fixed top-0 left-0 right-0 z-10 bg-white shadow-md p-2 flex justify-between items-center">
-        <h2 className="text-xl font-bold ml-4">Hexigo</h2>
-        <div className="flex items-center gap-2">
-          {isEditMode && (
-            <button
-              className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
-              onClick={toggleGridLines}
-            >
-              {showGridLines ? 'Hide Grid' : 'Show Grid'}
-            </button>
-          )}
-          <button
-            className="p-2 bg-gray-200 rounded-full hover:bg-gray-300 mr-4 flex items-center justify-center"
-            onClick={onToggleEditMode}
-            title={isEditMode ? "Switch to Game Mode" : "Switch to Edit Mode"}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <div className="relative w-full h-full overflow-hidden">
+      {/* Water background for island effect */}
+      {showWaterBorder && (
+        <div className="absolute inset-0 bg-blue-400">
+          <div className="absolute inset-0 opacity-30">
+            {/* Water texture pattern */}
+            <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="water-pattern" patternUnits="userSpaceOnUse" width="100" height="100">
+                  <path d="M0 25C20 25 20 75 40 75C60 75 60 25 80 25C100 25 100 75 120 75" 
+                        fill="none" stroke="white" strokeWidth="2" strokeOpacity="0.5" />
+                  <path d="M-20 50C0 50 0 100 20 100C40 100 40 50 60 50C80 50 80 100 100 100" 
+                        fill="none" stroke="white" strokeWidth="2" strokeOpacity="0.3" />
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#water-pattern)" />
             </svg>
-          </button>
+          </div>
         </div>
+      )}
+
+      {/* Main grid container */}
+      <div 
+        ref={gridRef}
+        className="relative w-full h-full"
+        style={{ 
+          backgroundColor: isEditMode ? 'rgba(200, 200, 200, 0.2)' : 'transparent',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Render grid lines */}
+        {renderGridLines()}
+
+        {/* Render snap points */}
+        {renderSnapPoints()}
+
+        {/* Render placed tiles */}
+        {placedTiles.map(({ tileIndex, q, r }) => {
+          const tile = tiles[tileIndex];
+          const { x, y } = gridToPixel(q, r);
+          
+          return (
+            <div
+              key={`placed-${tileIndex}-${q}-${r}`}
+              className="absolute transform -translate-x-1/2 -translate-y-1/2"
+              style={{ left: `${x}px`, top: `${y}px` }}
+            >
+              <HexTile
+                resource={tile.resource}
+                tokenNumber={tile.tokenNumber}
+                width={tileWidth}
+                height={tileHeight}
+                onClick={() => onTileClick && onTileClick(tile)}
+                hasRobber={tile.hasRobber}
+              />
+            </div>
+          );
+        })}
+        
+        {/* Render ports */}
+        {showWaterBorder && (
+          <svg className="absolute inset-0 pointer-events-none">
+            {ports.map(port => {
+              // Convert port coordinates to pixel position
+              const { q, r } = port.coordinates;
+              const hexSize = Math.min(tileWidth, tileHeight) / 2;
+              
+              return (
+                <Port 
+                  key={port.id} 
+                  port={port} 
+                  hexSize={hexSize} 
+                />
+              );
+            })}
+          </svg>
+        )}
       </div>
 
       {/* Edit mode controls */}
       {isEditMode && (
-        <div className="fixed top-16 left-0 right-0 z-10 bg-gray-50 shadow-md p-3">
+        <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-50">
+          <h3 className="text-lg font-bold mb-2">Board Editor</h3>
+          
           <div className="flex flex-col gap-3 max-w-6xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="flex items-center gap-2">
@@ -582,58 +641,22 @@ const GameBoard: React.FC<GameBoardProps> = ({
                 Reset to Defaults
               </button>
             </div>
+
+            {/* Water border toggle */}
+            <div className="mt-4">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={showWaterBorder}
+                  onChange={() => setShowWaterBorder(!showWaterBorder)}
+                  className="form-checkbox h-5 w-5 text-blue-600"
+                />
+                <span>Show Water Border</span>
+              </label>
+            </div>
           </div>
         </div>
       )}
-
-      <div
-        ref={gridRef}
-        className="relative bg-blue-500 w-full"
-        style={{
-          height: `${gridSize.height}px`,
-          marginTop: isEditMode ? '140px' : '60px', // Adjust for the top bar and edit controls
-          cursor: draggingTile !== null ? 'grabbing' : 'default',
-        }}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-      >
-        {/* Render grid lines */}
-        {renderGridLines()}
-
-        {/* Render snap points */}
-        {renderSnapPoints()}
-
-        {/* Render placed tiles */}
-        {placedTiles.map((placed) => {
-          const tile = tiles[placed.tileIndex];
-          if (!tile) return null;
-
-          const { x, y } = gridToPixel(placed.q, placed.r);
-
-          return (
-            <div
-              key={tile.id}
-              className={`absolute ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-              style={{
-                left: `${x}px`,
-                top: `${y}px`,
-                zIndex: draggingTile === placed.tileIndex ? 10 : 1,
-                transform: 'translate(-50%, -50%)',
-              }}
-              onMouseDown={(e) => handleMouseDown(e, placed.tileIndex)}
-              onClick={() => !isEditMode && onTileClick && onTileClick(tile)}
-            >
-              <HexTile
-                resource={tile.resource}
-                tokenNumber={tile.tokenNumber}
-                size={Math.min(tileWidth, tileHeight)} // Use the smaller dimension for the tile size
-                width={tileWidth}
-                height={tileHeight}
-              />
-            </div>
-          );
-        })}
-      </div>
 
       {/* Coordinate output (only in edit mode) */}
       {isEditMode && (

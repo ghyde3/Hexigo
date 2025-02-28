@@ -3,9 +3,15 @@ import Head from 'next/head';
 import { Client } from 'boardgame.io/react';
 import { Local } from 'boardgame.io/multiplayer';
 import GameBoard from '../components/GameBoard';
+import PlayerPanel from '../components/PlayerPanel';
+import TurnControls from '../components/TurnControls';
+import GameLog, { LogEntry, LogEntryType } from '../components/GameLog';
+import BankPanel, { DevelopmentCardType } from '../components/BankPanel';
+import EndGameModal from '../components/EndGameModal';
 import CatanGame from '../lib/game';
-import { canBuild, rollDice } from '../lib/utils';
-import { StructureType, CatanState, Player } from '../lib/types';
+import { canBuild, rollDice, hasAccessToPort, getTradingRatio } from '../lib/utils';
+import { StructureType, CatanState, Player, ResourceType } from '../lib/types';
+import { v4 as uuidv4 } from 'uuid';
 
 // Number of players in the game
 const NUM_PLAYERS = 4;
@@ -27,6 +33,24 @@ const RESOURCES = [
   { name: 'ore', icon: '⛏️', color: 'bg-ore' }
 ];
 
+// Initial bank resources
+const INITIAL_BANK_RESOURCES = {
+  [ResourceType.Brick]: 19,
+  [ResourceType.Wood]: 19,
+  [ResourceType.Sheep]: 19,
+  [ResourceType.Wheat]: 19,
+  [ResourceType.Ore]: 19,
+};
+
+// Initial development cards
+const INITIAL_DEVELOPMENT_CARDS = {
+  [DevelopmentCardType.Knight]: 14,
+  [DevelopmentCardType.VictoryPoint]: 5,
+  [DevelopmentCardType.RoadBuilding]: 2,
+  [DevelopmentCardType.YearOfPlenty]: 2,
+  [DevelopmentCardType.Monopoly]: 2,
+};
+
 // The core game component that houses the game board and UI
 const CatanGameComponent: React.FC<{
   G: CatanState;
@@ -34,34 +58,132 @@ const CatanGameComponent: React.FC<{
   moves: any;
   events: any;
   gameMetadata: any;
-}> = ({ G, ctx, moves, events, gameMetadata }) => {
+  reset: () => void;
+}> = ({ G, ctx, moves, events, gameMetadata, reset }) => {
   const [selectedPlayer, setSelectedPlayer] = useState(0);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [playersBarPosition, setPlayersBarPosition] = useState({ x: window.innerWidth / 2, y: 100 });
-  const [playersBarOrientation, setPlayersBarOrientation] = useState<'vertical' | 'horizontal'>('horizontal');
-  const [toolbarPosition, setToolbarPosition] = useState({ x: window.innerWidth / 2, y: window.innerHeight - 80 });
-  const [toolbarOrientation, setToolbarOrientation] = useState<'vertical' | 'horizontal'>('horizontal');
   
-  // Dragging state
-  const [isDraggingPlayersBar, setIsDraggingPlayersBar] = useState(false);
-  const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  // Panel positions with default values
+  const [playerPanelPosition, setPlayerPanelPosition] = useState({ x: 20, y: 20 });
+  const [turnControlsPosition, setTurnControlsPosition] = useState({ x: window.innerWidth / 2 - 150, y: window.innerHeight - 200 });
+  const [gameLogPosition, setGameLogPosition] = useState({ x: window.innerWidth - 320, y: 20 });
+  const [bankPanelPosition, setBankPanelPosition] = useState({ x: 20, y: window.innerHeight - 400 });
   
-  // Refs for the UI elements
-  const playersBarRef = useRef<HTMLDivElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
+  // Add state for the end game modal
+  const [isEndGameModalOpen, setIsEndGameModalOpen] = useState(false);
+  
+  // Load panel positions from localStorage on component mount
+  useEffect(() => {
+    // Only run on client-side
+    if (typeof window !== 'undefined') {
+      try {
+        const savedPlayerPanelPosition = localStorage.getItem('playerPanelPosition');
+        const savedTurnControlsPosition = localStorage.getItem('turnControlsPosition');
+        const savedGameLogPosition = localStorage.getItem('gameLogPosition');
+        const savedBankPanelPosition = localStorage.getItem('bankPanelPosition');
+        
+        if (savedPlayerPanelPosition) {
+          setPlayerPanelPosition(JSON.parse(savedPlayerPanelPosition));
+        }
+        if (savedTurnControlsPosition) {
+          setTurnControlsPosition(JSON.parse(savedTurnControlsPosition));
+        }
+        if (savedGameLogPosition) {
+          setGameLogPosition(JSON.parse(savedGameLogPosition));
+        }
+        if (savedBankPanelPosition) {
+          setBankPanelPosition(JSON.parse(savedBankPanelPosition));
+        }
+      } catch (error) {
+        console.error('Error loading panel positions from localStorage:', error);
+      }
+    }
+  }, []);
+  
+  // Save panel positions to localStorage when they change
+  const handlePlayerPanelDragEnd = (position: { x: number; y: number }) => {
+    setPlayerPanelPosition(position);
+    localStorage.setItem('playerPanelPosition', JSON.stringify(position));
+  };
+  
+  const handleTurnControlsDragEnd = (position: { x: number; y: number }) => {
+    setTurnControlsPosition(position);
+    localStorage.setItem('turnControlsPosition', JSON.stringify(position));
+  };
+  
+  const handleGameLogDragEnd = (position: { x: number; y: number }) => {
+    setGameLogPosition(position);
+    localStorage.setItem('gameLogPosition', JSON.stringify(position));
+  };
+  
+  const handleBankPanelDragEnd = (position: { x: number; y: number }) => {
+    setBankPanelPosition(position);
+    localStorage.setItem('bankPanelPosition', JSON.stringify(position));
+  };
+  
+  // Game state
+  const [bankResources, setBankResources] = useState(INITIAL_BANK_RESOURCES);
+  const [developmentCards, setDevelopmentCards] = useState(INITIAL_DEVELOPMENT_CARDS);
+  const [playerDevelopmentCards, setPlayerDevelopmentCards] = useState<Record<number, Record<DevelopmentCardType, number>>>({});
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([
+    {
+      id: uuidv4(),
+      type: LogEntryType.SYSTEM,
+      timestamp: new Date(),
+      message: 'Game started'
+    }
+  ]);
+  const [hasLongestRoad, setHasLongestRoad] = useState<number | null>(null);
+  const [hasLargestArmy, setHasLargestArmy] = useState<number | null>(null);
   
   const currentPlayer = G.players[selectedPlayer];
   
   // Determine if the current player can build each structure type
-  const canBuildRoad = canBuild(currentPlayer, StructureType.Road);
-  const canBuildSettlement = canBuild(currentPlayer, StructureType.Settlement);
-  const canBuildCity = canBuild(currentPlayer, StructureType.City);
+  const canBuildRoad = canBuild(G, selectedPlayer, StructureType.Road);
+  const canBuildSettlement = canBuild(G, selectedPlayer, StructureType.Settlement);
+  const canBuildCity = canBuild(G, selectedPlayer, StructureType.City);
+  
+  // Check if player can buy development card
+  const canBuyDevelopmentCard = Object.entries(currentPlayer.resources).every(([resource, count]) => {
+    const requiredAmount = resource === ResourceType.Ore || resource === ResourceType.Sheep || resource === ResourceType.Wheat ? 1 : 0;
+    return count >= requiredAmount;
+  }) && Object.values(developmentCards).reduce((sum, count) => sum + count, 0) > 0;
+  
+  // Initialize player development cards
+  useEffect(() => {
+    const initialPlayerCards: Record<number, Record<DevelopmentCardType, number>> = {};
+    
+    G.players.forEach((_, index) => {
+      initialPlayerCards[index] = {
+        [DevelopmentCardType.Knight]: 0,
+        [DevelopmentCardType.VictoryPoint]: 0,
+        [DevelopmentCardType.RoadBuilding]: 0,
+        [DevelopmentCardType.YearOfPlenty]: 0,
+        [DevelopmentCardType.Monopoly]: 0
+      };
+    });
+    
+    setPlayerDevelopmentCards(initialPlayerCards);
+  }, [G.players]);
+  
+  // Add a log entry
+  const addLogEntry = (type: LogEntryType, message: string, playerIndex?: number, details?: any) => {
+    const newEntry: LogEntry = {
+      id: uuidv4(),
+      type,
+      timestamp: new Date(),
+      message,
+      playerIndex,
+      details
+    };
+    setLogEntries(prev => [...prev, newEntry]);
+  };
   
   // Handle player switching (local multiplayer simulation)
   const handlePlayerChange = (playerIndex: number) => {
     setSelectedPlayer(playerIndex);
     events.setActivePlayers({ value: { [playerIndex]: 'play' } });
+    addLogEntry(LogEntryType.SYSTEM, `Player ${G.players[playerIndex].name}'s turn`);
   };
   
   // Handle tile clicks (for building)
@@ -74,7 +196,263 @@ const CatanGameComponent: React.FC<{
   
   // Handle dice rolling
   const handleRollDice = () => {
+    // Roll the dice
+    const [die1, die2] = rollDice();
+    const diceSum = die1 + die2;
+    
+    // Update the last roll in the game state
     moves.rollDice();
+    
+    // Log the dice roll
+    addLogEntry(
+      LogEntryType.DICE_ROLL, 
+      `Rolled ${diceSum} (${die1} + ${die2})`, 
+      selectedPlayer
+    );
+    
+    // Distribute resources based on the roll
+    distributeResources(diceSum);
+  };
+  
+  // Distribute resources to players based on dice roll
+  const distributeResources = (diceValue: number) => {
+    // If a 7 is rolled, activate the robber
+    if (diceValue === 7) {
+      activateRobber();
+      return;
+    }
+    
+    // Find all tiles with the rolled number
+    const matchingTiles = G.tiles.filter(tile => tile.tokenNumber === diceValue);
+    
+    if (matchingTiles.length === 0) {
+      addLogEntry(LogEntryType.SYSTEM, `No resources produced with roll ${diceValue}`);
+      return;
+    }
+    
+    // Track resources gained by each player
+    const resourcesGained: Record<number, Partial<Record<ResourceType, number>>> = {};
+    
+    // Initialize resource tracking for each player
+    G.players.forEach((_, index) => {
+      resourcesGained[index] = {};
+    });
+    
+    // For each matching tile, give resources to players with adjacent settlements/cities
+    matchingTiles.forEach(tile => {
+      if (tile.resource === ResourceType.Desert) return; // Desert produces no resources
+      
+      // In a full implementation, we would check which players have settlements/cities
+      // adjacent to this tile and give them resources accordingly
+      // For now, we'll simulate this with a simplified approach
+      
+      // Get all structures (settlements and cities) adjacent to this tile
+      const adjacentStructures = G.structures.filter(structure => {
+        // Check if the structure is a settlement or city
+        if (structure.type !== StructureType.Settlement && structure.type !== StructureType.City) {
+          return false;
+        }
+        
+        // In a real implementation, we would check if the structure coordinates
+        // are adjacent to the tile coordinates
+        // For now, we'll use a random chance to simulate adjacency
+        return Math.random() < 0.3; // 30% chance a structure is adjacent to the tile
+      });
+      
+      // Give resources to players based on their adjacent structures
+      adjacentStructures.forEach(structure => {
+        const playerIndex = G.players.findIndex(p => p.id === structure.playerId);
+        if (playerIndex === -1) return;
+        
+        // Determine how many resources to give (1 for settlement, 2 for city)
+        const resourceCount = structure.type === StructureType.City ? 2 : 1;
+        
+        // Update the player's resources
+        G.players[playerIndex].resources[tile.resource] += resourceCount;
+        
+        // Track resources gained for logging
+        if (!resourcesGained[playerIndex][tile.resource]) {
+          resourcesGained[playerIndex][tile.resource] = 0;
+        }
+        resourcesGained[playerIndex][tile.resource]! += resourceCount;
+        
+        // Update bank resources
+        setBankResources(prev => ({
+          ...prev,
+          [tile.resource]: Math.max(0, prev[tile.resource] - resourceCount)
+        }));
+      });
+    });
+    
+    // Log resources gained by each player
+    Object.entries(resourcesGained).forEach(([playerIndex, resources]) => {
+      const resourceEntries = Object.entries(resources);
+      if (resourceEntries.length > 0) {
+        const resourceList = resourceEntries
+          .map(([resource, count]) => `${count} ${resource}`)
+          .join(', ');
+        
+        addLogEntry(
+          LogEntryType.RESOURCE_GAIN,
+          `Gained ${resourceList}`,
+          parseInt(playerIndex)
+        );
+      }
+    });
+  };
+  
+  // Activate the robber when a 7 is rolled
+  const activateRobber = () => {
+    addLogEntry(LogEntryType.ROBBER, "Rolled a 7! The Robber has been activated!", selectedPlayer);
+    
+    // 1. Players with more than 7 cards must discard half (rounded down)
+    const playersToDiscard: number[] = [];
+    
+    G.players.forEach((player, index) => {
+      const totalCards = Object.values(player.resources).reduce((sum, count) => sum + count, 0);
+      if (totalCards > 7) {
+        playersToDiscard.push(index);
+        
+        // Calculate how many cards to discard (half, rounded down)
+        const discardCount = Math.floor(totalCards / 2);
+        
+        addLogEntry(
+          LogEntryType.RESOURCE_LOSS,
+          `Must discard ${discardCount} cards`,
+          index
+        );
+        
+        // In a full implementation, we would prompt the player to select which cards to discard
+        // For now, we'll simulate this by randomly discarding cards
+        let remainingToDiscard = discardCount;
+        
+        while (remainingToDiscard > 0) {
+          // Get all resources the player has
+          const availableResources = Object.entries(player.resources)
+            .filter(([_, count]) => count > 0)
+            .map(([resource]) => resource as ResourceType);
+          
+          if (availableResources.length === 0) break;
+          
+          // Randomly select a resource to discard
+          const resourceToDiscard = availableResources[Math.floor(Math.random() * availableResources.length)];
+          
+          // Discard one of that resource
+          G.players[index].resources[resourceToDiscard]--;
+          
+          // Add it back to the bank
+          setBankResources(prev => ({
+            ...prev,
+            [resourceToDiscard]: prev[resourceToDiscard] + 1
+          }));
+          
+          remainingToDiscard--;
+        }
+      }
+    });
+    
+    // 2. Move the robber to a new tile
+    // In a full implementation, the current player would select a new tile for the robber
+    // For now, we'll randomly select a new tile
+    
+    // Find the current robber tile (if any)
+    const currentRobberTileIndex = G.tiles.findIndex(tile => tile.hasRobber);
+    
+    // Remove the robber from the current tile
+    if (currentRobberTileIndex !== -1) {
+      G.tiles[currentRobberTileIndex].hasRobber = false;
+    }
+    
+    // Find all tiles that don't have the robber
+    const eligibleTiles = G.tiles.filter(tile => !tile.hasRobber);
+    
+    // Randomly select a new tile for the robber
+    const newRobberTileIndex = Math.floor(Math.random() * eligibleTiles.length);
+    const newRobberTile = eligibleTiles[newRobberTileIndex];
+    
+    // Place the robber on the new tile
+    const tileIndex = G.tiles.findIndex(tile => tile.id === newRobberTile.id);
+    if (tileIndex !== -1) {
+      G.tiles[tileIndex].hasRobber = true;
+      
+      addLogEntry(
+        LogEntryType.ROBBER,
+        `Moved the robber to a ${newRobberTile.resource} tile`,
+        selectedPlayer
+      );
+      
+      // 3. Steal a resource from a player with a settlement/city adjacent to the new robber tile
+      // In a full implementation, the current player would select which player to steal from
+      // For now, we'll randomly select a player
+      
+      // Get all players with settlements/cities adjacent to the new robber tile
+      // (For simplicity, we'll just randomly select a player other than the current player)
+      const otherPlayers = G.players.filter((_, index) => index !== selectedPlayer);
+      
+      if (otherPlayers.length > 0) {
+        const targetPlayerIndex = Math.floor(Math.random() * otherPlayers.length);
+        const targetPlayer = otherPlayers[targetPlayerIndex];
+        const actualTargetIndex = G.players.findIndex(p => p.id === targetPlayer.id);
+        
+        // Get all resources the target player has
+        const availableResources = Object.entries(targetPlayer.resources)
+          .filter(([_, count]) => count > 0)
+          .map(([resource]) => resource as ResourceType);
+        
+        if (availableResources.length > 0) {
+          // Randomly select a resource to steal
+          const resourceToSteal = availableResources[Math.floor(Math.random() * availableResources.length)];
+          
+          // Steal one of that resource
+          G.players[actualTargetIndex].resources[resourceToSteal]--;
+          G.players[selectedPlayer].resources[resourceToSteal]++;
+          
+          addLogEntry(
+            LogEntryType.ROBBER,
+            `Stole a ${resourceToSteal} from ${targetPlayer.name}`,
+            selectedPlayer
+          );
+        }
+      }
+    }
+  };
+  
+  // Handle trading with the bank (using port ratios if available)
+  const handleBankTrade = (give: ResourceType, receive: ResourceType) => {
+    const player = G.players[selectedPlayer];
+    
+    // Get the trading ratio based on ports
+    const ratio = getTradingRatio(player, give, G.ports, G.structures);
+    
+    // Check if player has enough resources
+    if (player.resources[give] < ratio) {
+      addLogEntry(LogEntryType.SYSTEM, `Not enough ${give} to trade (need ${ratio})`, selectedPlayer);
+      return;
+    }
+    
+    // Check if bank has the requested resource
+    if (bankResources[receive] < 1) {
+      addLogEntry(LogEntryType.SYSTEM, `Bank doesn't have any ${receive}`, selectedPlayer);
+      return;
+    }
+    
+    // Update player resources
+    player.resources[give] -= ratio;
+    player.resources[receive] += 1;
+    
+    // Update bank resources
+    setBankResources(prev => ({
+      ...prev,
+      [give]: prev[give] + ratio,
+      [receive]: prev[receive] - 1
+    }));
+    
+    // Log the trade
+    addLogEntry(
+      LogEntryType.TRADE,
+      `Traded ${ratio} ${give} for 1 ${receive} with the bank`,
+      selectedPlayer
+    );
   };
   
   // Handle building a road
@@ -88,6 +466,7 @@ const CatanGameComponent: React.FC<{
       direction: 0
     };
     moves.buildRoad(roadCoordinates);
+    addLogEntry(LogEntryType.BUILD, 'Built a road', selectedPlayer);
   };
   
   // Handle building a settlement
@@ -101,296 +480,396 @@ const CatanGameComponent: React.FC<{
       direction: 0
     };
     moves.buildSettlement(settlementCoordinates);
+    addLogEntry(LogEntryType.BUILD, 'Built a settlement', selectedPlayer);
   };
   
-  // Handle building a city (upgrading a settlement)
+  // Handle building a city
   const handleBuildCity = () => {
-    // For POC, find the first settlement and upgrade it
-    // In a complete implementation, we would prompt the user to select a settlement
-    const settlement = G.structures.find(
-      s => s.type === StructureType.Settlement && s.playerId === String(selectedPlayer)
-    );
+    // For POC, just place a city at a fixed location
+    // In a complete implementation, we would prompt the user to select a vertex with an existing settlement
+    const cityCoordinates = {
+      q: 0,
+      r: 0,
+      s: 0,
+      direction: 0
+    };
+    moves.buildCity(cityCoordinates);
+    addLogEntry(LogEntryType.BUILD, 'Built a city', selectedPlayer);
+  };
+  
+  // Handle buying a development card
+  const handleBuyDevelopmentCard = () => {
+    const player = G.players[selectedPlayer];
     
-    if (settlement) {
-      moves.buildCity(settlement.id);
+    // Check if player can buy a development card
+    if (!canBuyDevelopmentCard) {
+      addLogEntry(LogEntryType.SYSTEM, "Can't buy a development card", selectedPlayer);
+      return;
+    }
+    
+    // Deduct resources from player
+    player.resources[ResourceType.Ore]--;
+    player.resources[ResourceType.Sheep]--;
+    player.resources[ResourceType.Wheat]--;
+    
+    // Add resources to bank
+    setBankResources(prev => ({
+      ...prev,
+      [ResourceType.Ore]: prev[ResourceType.Ore] + 1,
+      [ResourceType.Sheep]: prev[ResourceType.Sheep] + 1,
+      [ResourceType.Wheat]: prev[ResourceType.Wheat] + 1
+    }));
+    
+    // Determine which development card to give
+    // First, create a weighted array of available cards
+    const availableCards: DevelopmentCardType[] = [];
+    
+    Object.entries(developmentCards).forEach(([cardType, count]) => {
+      if (count > 0) {
+        for (let i = 0; i < count; i++) {
+          availableCards.push(cardType as DevelopmentCardType);
+        }
+      }
+    });
+    
+    if (availableCards.length === 0) {
+      addLogEntry(LogEntryType.SYSTEM, "No development cards left", selectedPlayer);
+      return;
+    }
+    
+    // Randomly select a card
+    const randomIndex = Math.floor(Math.random() * availableCards.length);
+    const selectedCard = availableCards[randomIndex];
+    
+    // Remove the card from the bank
+    setDevelopmentCards(prev => ({
+      ...prev,
+      [selectedCard]: prev[selectedCard] - 1
+    }));
+    
+    // Add the card to the player's hand
+    setPlayerDevelopmentCards(prev => ({
+      ...prev,
+      [selectedPlayer]: {
+        ...prev[selectedPlayer],
+        [selectedCard]: prev[selectedPlayer][selectedCard] + 1
+      }
+    }));
+    
+    // If it's a victory point card, immediately add a victory point
+    if (selectedCard === DevelopmentCardType.VictoryPoint) {
+      player.victoryPoints++;
+    }
+    
+    // Log the purchase
+    addLogEntry(
+      LogEntryType.DEVELOPMENT_CARD,
+      `Bought a ${selectedCard} development card`,
+      selectedPlayer
+    );
+  };
+  
+  // Handle using a development card
+  const handleUseDevCard = (cardType: DevelopmentCardType) => {
+    // Check if player has the card
+    if (!playerDevelopmentCards[selectedPlayer] || playerDevelopmentCards[selectedPlayer][cardType] <= 0) {
+      addLogEntry(LogEntryType.SYSTEM, `You don't have a ${cardType} card to use`, selectedPlayer);
+      return;
+    }
+    
+    // Remove the card from the player's hand
+    setPlayerDevelopmentCards(prev => ({
+      ...prev,
+      [selectedPlayer]: {
+        ...prev[selectedPlayer],
+        [cardType]: prev[selectedPlayer][cardType] - 1
+      }
+    }));
+    
+    // Handle the card effect
+    switch (cardType) {
+      case DevelopmentCardType.Knight:
+        // Activate the robber
+        activateRobber();
+        
+        // Update the player's knight count and check for largest army
+        const knightsPlayed = (G.players[selectedPlayer].knightsPlayed || 0) + 1;
+        G.players[selectedPlayer].knightsPlayed = knightsPlayed;
+        
+        // Check if this player now has the largest army (3+ knights and more than anyone else)
+        if (knightsPlayed >= 3) {
+          let largestArmy = true;
+          let previousHolder = hasLargestArmy;
+          
+          // Check if any other player has more knights
+          G.players.forEach((otherPlayer, index) => {
+            if (index !== selectedPlayer && (otherPlayer.knightsPlayed || 0) >= knightsPlayed) {
+              largestArmy = false;
+            }
+          });
+          
+          if (largestArmy && hasLargestArmy !== selectedPlayer) {
+            // If another player had the largest army, they lose 2 points
+            if (hasLargestArmy !== null) {
+              G.players[hasLargestArmy].victoryPoints -= 2;
+            }
+            
+            // This player gets 2 points
+            G.players[selectedPlayer].victoryPoints += 2;
+            setHasLargestArmy(selectedPlayer);
+            
+            addLogEntry(
+              LogEntryType.SYSTEM,
+              `${G.players[selectedPlayer].name} now has the Largest Army!`,
+              selectedPlayer
+            );
+          }
+        }
+        break;
+        
+      case DevelopmentCardType.RoadBuilding:
+        // Allow player to build 2 roads for free
+        addLogEntry(
+          LogEntryType.DEVELOPMENT_CARD,
+          `Used Road Building card - build 2 roads for free`,
+          selectedPlayer
+        );
+        // In a full implementation, we would prompt the player to place 2 roads
+        // For now, we'll just simulate this
+        break;
+        
+      case DevelopmentCardType.YearOfPlenty:
+        // Allow player to take 2 resources of their choice from the bank
+        addLogEntry(
+          LogEntryType.DEVELOPMENT_CARD,
+          `Used Year of Plenty card - take 2 resources from the bank`,
+          selectedPlayer
+        );
+        // In a full implementation, we would prompt the player to select 2 resources
+        // For now, we'll just give them 2 random resources
+        const availableResources = Object.entries(bankResources)
+          .filter(([resource, count]) => count > 0 && resource !== ResourceType.Desert)
+          .map(([resource]) => resource as ResourceType);
+        
+        if (availableResources.length >= 2) {
+          // Take 2 random resources
+          for (let i = 0; i < 2; i++) {
+            const randomIndex = Math.floor(Math.random() * availableResources.length);
+            const selectedResource = availableResources[randomIndex];
+            
+            // Add to player
+            G.players[selectedPlayer].resources[selectedResource]++;
+            
+            // Remove from bank
+            setBankResources(prev => ({
+              ...prev,
+              [selectedResource]: prev[selectedResource] - 1
+            }));
+            
+            // Remove from available resources to avoid taking the same one twice
+            availableResources.splice(randomIndex, 1);
+          }
+        }
+        break;
+        
+      case DevelopmentCardType.Monopoly:
+        // Take all of one resource type from all other players
+        addLogEntry(
+          LogEntryType.DEVELOPMENT_CARD,
+          `Used Monopoly card - take all of one resource from all players`,
+          selectedPlayer
+        );
+        // In a full implementation, we would prompt the player to select a resource
+        // For now, we'll just pick a random resource
+        const resourceTypes = [
+          ResourceType.Brick,
+          ResourceType.Wood,
+          ResourceType.Sheep,
+          ResourceType.Wheat,
+          ResourceType.Ore
+        ];
+        const monopolyResource = resourceTypes[Math.floor(Math.random() * resourceTypes.length)];
+        
+        let totalTaken = 0;
+        
+        // Take the resource from all other players
+        G.players.forEach((otherPlayer, index) => {
+          if (index !== selectedPlayer) {
+            const amount = otherPlayer.resources[monopolyResource];
+            if (amount > 0) {
+              // Take from other player
+              otherPlayer.resources[monopolyResource] = 0;
+              
+              // Give to current player
+              G.players[selectedPlayer].resources[monopolyResource] += amount;
+              
+              totalTaken += amount;
+            }
+          }
+        });
+        
+        addLogEntry(
+          LogEntryType.RESOURCE_GAIN,
+          `Took ${totalTaken} ${monopolyResource} from other players`,
+          selectedPlayer
+        );
+        break;
+        
+      case DevelopmentCardType.VictoryPoint:
+        // Victory points are automatically counted when the card is acquired
+        addLogEntry(
+          LogEntryType.SYSTEM,
+          `Victory Point cards are automatically counted`,
+          selectedPlayer
+        );
+        break;
     }
   };
   
-  // Handle ending the turn
-  const handleEndTurn = () => {
-    events.endTurn();
-    // Auto-switch to the next player for local play
-    const nextPlayer = (selectedPlayer + 1) % NUM_PLAYERS;
-    setSelectedPlayer(nextPlayer);
+  // Handle sending chat messages
+  const handleSendChat = (message: string) => {
+    addLogEntry(LogEntryType.CHAT, message, selectedPlayer);
   };
   
-  // Handle adding resources (for development/testing)
-  const handleAddResources = () => {
-    moves.addResources(3); // Add 3 of each resource
+  // Handle end turn
+  const handleEndTurn = () => {
+    events.endTurn();
+    const nextPlayer = (selectedPlayer + 1) % NUM_PLAYERS;
+    setSelectedPlayer(nextPlayer);
+    addLogEntry(LogEntryType.SYSTEM, `Player ${G.players[nextPlayer].name}'s turn`);
   };
-
+  
+  // Handle time expired
+  const handleTimeExpired = () => {
+    addLogEntry(LogEntryType.SYSTEM, 'Time expired, ending turn automatically', selectedPlayer);
+    handleEndTurn();
+  };
+  
+  // Handle adding resources (dev feature)
+  const handleAddResources = () => {
+    moves.addResources(selectedPlayer);
+    addLogEntry(LogEntryType.RESOURCE_GAIN, 'Added resources (dev mode)', selectedPlayer);
+  };
+  
   // Toggle edit mode
   const handleToggleEditMode = () => {
     setIsEditMode(!isEditMode);
   };
-
-  // Toggle players bar orientation
-  const togglePlayersBarOrientation = () => {
-    setPlayersBarOrientation(prev => prev === 'vertical' ? 'horizontal' : 'vertical');
-  };
-
-  // Toggle toolbar orientation
-  const toggleToolbarOrientation = () => {
-    setToolbarOrientation(prev => prev === 'vertical' ? 'horizontal' : 'vertical');
-  };
-
-  // Start dragging the players bar
-  const startDraggingPlayersBar = (e: React.MouseEvent) => {
-    if (playersBarRef.current) {
-      const rect = playersBarRef.current.getBoundingClientRect();
-      setIsDraggingPlayersBar(true);
-      setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      });
-    }
-    e.preventDefault();
-  };
-
-  // Start dragging the toolbar
-  const startDraggingToolbar = (e: React.MouseEvent) => {
-    if (toolbarRef.current) {
-      const rect = toolbarRef.current.getBoundingClientRect();
-      setIsDraggingToolbar(true);
-      setDragOffset({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      });
-    }
-    e.preventDefault();
-  };
-
-  // Handle mouse move for dragging
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDraggingPlayersBar) {
-      setPlayersBarPosition({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y
-      });
-    } else if (isDraggingToolbar) {
-      setToolbarPosition({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y
-      });
-    }
-  };
-
-  // Stop dragging
-  const stopDragging = () => {
-    setIsDraggingPlayersBar(false);
-    setIsDraggingToolbar(false);
-  };
-
-  // Add global mouse up listener to stop dragging
-  useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      setIsDraggingPlayersBar(false);
-      setIsDraggingToolbar(false);
+  
+  // Handle ending the game
+  const handleEndGame = () => {
+    // Add a log entry for ending the game
+    const newEntry: LogEntry = {
+      id: uuidv4(),
+      type: LogEntryType.SYSTEM,
+      message: "Game ended by player",
+      timestamp: new Date(),
     };
+    setLogEntries(prev => [...prev, newEntry]);
     
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, []);
-
-  // Get player bar classes
-  const getPlayerBarClasses = () => {
-    const baseClasses = "flex gap-2 bg-white shadow-lg z-20 absolute rounded-lg p-2";
-    return `${baseClasses} ${playersBarOrientation === 'vertical' ? 'flex-col' : 'flex-row'}`;
+    // Open the end game modal
+    setIsEndGameModalOpen(true);
   };
-
-  // Get toolbar classes
-  const getToolbarClasses = () => {
-    const baseClasses = "bg-white shadow-lg p-3 z-10 absolute rounded-lg";
-    return baseClasses;
-  };
-
-  // Get toolbar content classes
-  const getToolbarContentClasses = () => {
-    return toolbarOrientation === 'vertical' 
-      ? "flex flex-col gap-3" 
-      : "flex flex-wrap justify-between items-center";
+  
+  // Handle starting a new game
+  const handleNewGame = () => {
+    // Close the modal
+    setIsEndGameModalOpen(false);
+    
+    // Reset the game
+    reset();
+    
+    // Add a log entry for starting a new game
+    const newEntry: LogEntry = {
+      id: uuidv4(),
+      type: LogEntryType.SYSTEM,
+      message: "New game started",
+      timestamp: new Date(),
+    };
+    setLogEntries([newEntry]);
   };
   
   return (
-    <div 
-      className="min-h-screen bg-blue-500"
-      onMouseMove={handleMouseMove}
-      onMouseUp={stopDragging}
-    >
+    <div className="relative w-full h-screen overflow-hidden bg-blue-50">
       <Head>
-        <title>Hexigo</title>
-        <meta name="description" content="A Settlers of Catan inspired game" />
+        <title>Catan Game</title>
+        <meta name="description" content="Catan board game implementation" />
+        <link rel="icon" href="/favicon.ico" />
       </Head>
       
-      {!isEditMode && (
-        <>
-          {/* Players bar */}
-          <div 
-            ref={playersBarRef}
-            className={getPlayerBarClasses()}
-            style={{
-              left: `${playersBarPosition.x}px`,
-              top: `${playersBarPosition.y}px`,
-              transition: isDraggingPlayersBar ? 'none' : 'all 0.2s ease-out',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
-            }}
-          >
-            {/* Drag handle for players bar */}
-            <div 
-              className="absolute -top-3 left-0 right-0 h-6 flex justify-center items-center cursor-move"
-              onMouseDown={startDraggingPlayersBar}
-            >
-              <div className="w-10 h-1 bg-gray-300 rounded-full"></div>
-            </div>
-            
-            {/* Player quick select buttons */}
-            {Array.from({ length: NUM_PLAYERS }).map((_, index) => (
-              <div key={index} className="relative">
-                <button
-                  className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold shadow-md transition-transform ${
-                    selectedPlayer === index 
-                      ? 'scale-110 border-2 border-yellow-400' 
-                      : ''
-                  } ${PLAYER_COLORS[index].bg} ${PLAYER_COLORS[index].text}`}
-                  onClick={() => handlePlayerChange(index)}
-                >
-                  P{index + 1}
-                </button>
-              </div>
-            ))}
-            
-            {/* Controls for players bar */}
-            <div className="flex justify-center mt-1">
-              <button 
-                onClick={togglePlayersBarOrientation}
-                className="p-1 bg-gray-100 rounded hover:bg-gray-200 border border-gray-300"
-                title={`Switch to ${playersBarOrientation === 'vertical' ? 'horizontal' : 'vertical'} layout`}
-              >
-                {playersBarOrientation === 'vertical' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Game toolbar */}
-          <div 
-            ref={toolbarRef}
-            className={getToolbarClasses()}
-            style={{
-              left: `${toolbarPosition.x}px`,
-              top: `${toolbarPosition.y}px`,
-              transform: 'translate(-50%, 0)',
-              width: toolbarOrientation === 'vertical' ? 'auto' : 'min(90%, 800px)',
-              transition: isDraggingToolbar ? 'none' : 'all 0.2s ease-out',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
-            }}
-          >
-            {/* Drag handle for toolbar */}
-            <div 
-              className="absolute -top-3 left-0 right-0 h-6 flex justify-center items-center cursor-move"
-              onMouseDown={startDraggingToolbar}
-            >
-              <div className="w-10 h-1 bg-gray-300 rounded-full"></div>
-            </div>
-            
-            <div className={getToolbarContentClasses()}>
-              {/* Player resources */}
-              <div className="flex items-center gap-3">
-                <div className={`font-bold text-lg ${PLAYER_COLORS[selectedPlayer].text}`}>
-                  Player {selectedPlayer + 1}:
-                </div>
-                <div className="flex gap-2">
-                  {RESOURCES.map(resource => (
-                    <div key={resource.name} className={`${resource.color} text-white px-3 py-2 rounded-md flex items-center gap-1 shadow-sm`}>
-                      <span className="text-xl">{resource.icon}</span>
-                      <span className="font-medium">{currentPlayer.resources[resource.name]}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Turn controls */}
-              <div className="flex flex-wrap gap-2 mt-2 sm:mt-0">
-                <button 
-                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 font-medium shadow-sm"
-                  onClick={handleRollDice}
-                >
-                  Roll Dice {G.lastRoll && `(${G.lastRoll.die1 + G.lastRoll.die2})`}
-                </button>
-                <button 
-                  className={`px-4 py-2 rounded-md font-medium shadow-sm ${canBuildRoad ? 'bg-gray-200 hover:bg-gray-300 text-gray-800' : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-70'}`}
-                  onClick={canBuildRoad ? handleBuildRoad : undefined}
-                >
-                  Build Road
-                </button>
-                <button 
-                  className={`px-4 py-2 rounded-md font-medium shadow-sm ${canBuildSettlement ? 'bg-gray-200 hover:bg-gray-300 text-gray-800' : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-70'}`}
-                  onClick={canBuildSettlement ? handleBuildSettlement : undefined}
-                >
-                  Build Settlement
-                </button>
-                <button 
-                  className={`px-4 py-2 rounded-md font-medium shadow-sm ${canBuildCity ? 'bg-gray-200 hover:bg-gray-300 text-gray-800' : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-70'}`}
-                  onClick={canBuildCity ? handleBuildCity : undefined}
-                >
-                  Build City
-                </button>
-                <button 
-                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 font-medium shadow-sm"
-                  onClick={handleEndTurn}
-                >
-                  End Turn
-                </button>
-              </div>
-
-              {/* Toolbar controls */}
-              <div className="flex justify-center mt-2">
-                <button 
-                  onClick={toggleToolbarOrientation}
-                  className="p-1 bg-gray-100 rounded hover:bg-gray-200 border border-gray-300"
-                  title={`Switch to ${toolbarOrientation === 'vertical' ? 'horizontal' : 'vertical'} layout`}
-                >
-                  {toolbarOrientation === 'vertical' ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      {/* Game board */}
+      <GameBoard 
+        tiles={G.tiles}
+        ports={G.ports}
+        onTileClick={handleTileClick}
+        isEditMode={isEditMode}
+        onToggleEditMode={handleToggleEditMode}
+      />
       
-      <main className="w-full h-screen">
-        <GameBoard 
-          tiles={G.tiles} 
-          onTileClick={handleTileClick}
-          isEditMode={isEditMode}
-          onToggleEditMode={handleToggleEditMode}
-        />
-      </main>
+      {/* Player panel */}
+      <PlayerPanel 
+        players={G.players}
+        currentPlayer={selectedPlayer}
+        onPlayerChange={handlePlayerChange}
+        onAddResources={handleAddResources}
+        position={playerPanelPosition}
+        onDragEnd={handlePlayerPanelDragEnd}
+        hasLongestRoad={hasLongestRoad}
+        hasLargestArmy={hasLargestArmy}
+        playerDevelopmentCards={playerDevelopmentCards}
+        onUseDevCard={handleUseDevCard}
+      />
+      
+      {/* Turn controls */}
+      <TurnControls 
+        currentPlayer={G.players[selectedPlayer]}
+        diceRoll={G.lastRoll ? [G.lastRoll.die1, G.lastRoll.die2] : undefined}
+        onRollDice={handleRollDice}
+        onBuildRoad={handleBuildRoad}
+        onBuildSettlement={handleBuildSettlement}
+        onBuildCity={handleBuildCity}
+        onEndTurn={handleEndTurn}
+        onEndGame={handleEndGame}
+        canBuildRoad={canBuild(G, selectedPlayer, StructureType.Road)}
+        canBuildSettlement={canBuild(G, selectedPlayer, StructureType.Settlement)}
+        canBuildCity={canBuild(G, selectedPlayer, StructureType.City)}
+        position={turnControlsPosition}
+        onDragEnd={handleTurnControlsDragEnd}
+        turnTimeLimit={120}
+        onTimeExpired={handleTimeExpired}
+      />
+      
+      {/* Game log */}
+      <GameLog 
+        entries={logEntries}
+        players={G.players}
+        currentPlayerIndex={selectedPlayer}
+        onSendChat={handleSendChat}
+        position={gameLogPosition}
+        onDragEnd={handleGameLogDragEnd}
+      />
+      
+      {/* Bank panel */}
+      <BankPanel
+        resources={bankResources}
+        onTrade={handleBankTrade}
+        position={bankPanelPosition}
+        onDragEnd={handleBankPanelDragEnd}
+        onBuyDevelopmentCard={handleBuyDevelopmentCard}
+        canBuyDevelopmentCard={canBuyDevelopmentCard}
+        developmentCards={developmentCards}
+        currentPlayer={G.players[selectedPlayer]}
+        structures={G.structures}
+        ports={G.ports}
+      />
+      
+      {/* End Game Modal */}
+      <EndGameModal
+        isOpen={isEndGameModalOpen}
+        onClose={() => setIsEndGameModalOpen(false)}
+        players={G.players}
+        onNewGame={handleNewGame}
+      />
     </div>
   );
 };
@@ -408,9 +887,11 @@ const CatanClient = Client({
 const GamePage: React.FC = () => {
   // Use client-side rendering for Boardgame.io
   const [mounted, setMounted] = useState(false);
+  const [key, setKey] = useState(0); // Add a key state to force re-render for new game
   
   useEffect(() => {
     setMounted(true);
+    console.log('Boardgame.io client mounted');
     
     // Save the game state to localStorage whenever it changes
     const handleBeforeUnload = () => {
@@ -424,11 +905,16 @@ const GamePage: React.FC = () => {
     };
   }, []);
   
+  // Function to reset the game by changing the key
+  const resetGame = () => {
+    setKey(prevKey => prevKey + 1);
+  };
+  
   if (!mounted) {
     return <div className="flex justify-center items-center min-h-screen">Loading Hexigo...</div>;
   }
   
-  return <CatanClient playerID="0" />;
+  return <CatanClient key={key} playerID="0" reset={resetGame} />;
 };
 
 export default GamePage; 

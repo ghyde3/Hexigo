@@ -15,6 +15,16 @@ export enum StructureType {
   Road = 'road'
 }
 
+// Port types in Catan
+export enum PortType {
+  Generic = 'generic', // 3:1 trading ratio
+  Brick = 'brick',     // 2:1 trading ratio for brick
+  Wood = 'wood',       // 2:1 trading ratio for wood
+  Sheep = 'sheep',     // 2:1 trading ratio for sheep
+  Wheat = 'wheat',     // 2:1 trading ratio for wheat
+  Ore = 'ore'          // 2:1 trading ratio for ore
+}
+
 // Coordinates for the hexagonal grid
 export interface HexCoordinates {
   q: number;
@@ -38,6 +48,15 @@ export interface EdgeCoordinates {
   direction: number; // 0-5 representing the six edges of a hexagon
 }
 
+// Port location on the board
+export interface Port {
+  id: string;
+  type: PortType;
+  coordinates: HexCoordinates; // The hex tile adjacent to the port
+  direction: number; // 0-5 representing the edge of the hex where the port is located
+  vertices: VertexCoordinates[]; // The two vertices where settlements/cities can be built to use this port
+}
+
 // Resource counts for a player
 export interface ResourceCounts {
   [ResourceType.Brick]: number;
@@ -53,24 +72,26 @@ export interface Tile {
   coordinates: HexCoordinates;
   resource: ResourceType;
   tokenNumber?: number; // Desert has no number
+  hasRobber?: boolean;
 }
 
 // Structure built by players
 export interface Structure {
   id: string;
   type: StructureType;
-  playerId: string;
+  playerId: number;
   coordinates: VertexCoordinates | EdgeCoordinates;
 }
 
 // Player in the game
 export interface Player {
-  id: string;
+  id: number;
   name: string;
   color: string;
   resources: ResourceCounts;
   structures: Structure[];
   victoryPoints: number;
+  knightsPlayed?: number;
 }
 
 // The Catan game state
@@ -78,12 +99,16 @@ export interface CatanState {
   tiles: Tile[];
   players: Player[];
   structures: Structure[];
+  ports: Port[]; // Added ports to the game state
   currentPlayer: number;
   lastRoll?: {
     die1: number;
     die2: number;
     sum: number;
   };
+  gamePhase: string; // 'setup' or 'play'
+  longestRoadPlayerId: number | null;
+  largestArmyPlayerId: number | null;
 }
 
 // Building costs

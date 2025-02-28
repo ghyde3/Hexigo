@@ -8,7 +8,8 @@ import {
   Structure, 
   StructureType, 
   VertexCoordinates,
-  EdgeCoordinates
+  EdgeCoordinates,
+  Port
 } from './types';
 import { 
   generateId, 
@@ -20,42 +21,63 @@ import {
   collectResources,
   canBuild,
   deductResourcesForBuilding, 
-  isValidSettlementLocation
+  isValidSettlementLocation,
+  generatePorts
 } from './utils';
 
 // Player colors
 const PLAYER_COLORS = ['red', 'blue', 'green', 'orange'];
 
 // Initial setup of the Catan game
-const createInitialState = (numPlayers: number = 4): CatanState => {
+export function createInitialState(numPlayers: number = 4): CatanState {
   // Generate the hex grid coordinates
-  const hexCoordinates = generateHexGrid();
+  const hexCoords = generateHexGrid();
   
-  // Create resource distribution and shuffle
-  const resources = shuffleArray(createResourceDistribution());
+  // Create the resource distribution according to Catan rules
+  let resourceDistribution = createResourceDistribution();
   
-  // Create number token distribution and shuffle (excluding desert)
-  const numberTokens = shuffleArray(createNumberTokenDistribution());
+  // Create the number token distribution according to Catan rules
+  let numberTokenDistribution = createNumberTokenDistribution();
+  
+  // Shuffle the resource and number token distributions
+  resourceDistribution = shuffleArray(resourceDistribution);
+  numberTokenDistribution = shuffleArray(numberTokenDistribution);
+  
+  // Generate ports
+  const ports = generatePorts();
   
   // Create the tiles
-  const tiles: Tile[] = hexCoordinates.map((coords, index) => {
-    const resource = resources[index];
-    // Desert has no number token
-    const tokenNumber = resource !== ResourceType.Desert ? numberTokens.pop() : undefined;
+  const tiles: Tile[] = hexCoords.map((coords, index) => {
+    const resource = resourceDistribution[index];
+    
+    // If this is a desert tile, it has no number token and starts with the robber
+    if (resource === ResourceType.Desert) {
+      return {
+        id: `tile-${index}`,
+        coordinates: coords,
+        resource,
+        tokenNumber: null,
+        hasRobber: true
+      };
+    }
+    
+    // For non-desert tiles, assign the next available number token
+    const tokenIndex = index - resourceDistribution.slice(0, index).filter(r => r === ResourceType.Desert).length;
     
     return {
-      id: generateId(),
+      id: `tile-${index}`,
       coordinates: coords,
       resource,
-      tokenNumber
+      tokenNumber: numberTokenDistribution[tokenIndex],
+      hasRobber: false
     };
   });
   
-  // Create players
-  const players: Player[] = Array(numPlayers).fill(null).map((_, index) => ({
-    id: `player${index}`,
-    name: `Player ${index + 1}`,
-    color: PLAYER_COLORS[index],
+  // Initialize players
+  const players: Player[] = Array.from({ length: numPlayers }, (_, i) => ({
+    id: i,
+    name: `Player ${i + 1}`,
+    color: PLAYER_COLORS[i],
     resources: {
       [ResourceType.Brick]: 0,
       [ResourceType.Wood]: 0,
@@ -64,16 +86,25 @@ const createInitialState = (numPlayers: number = 4): CatanState => {
       [ResourceType.Ore]: 0
     },
     structures: [],
-    victoryPoints: 0
+    victoryPoints: 0,
+    knightsPlayed: 0
   }));
+  
+  // Initialize structures (empty at the start)
+  const structures: Structure[] = [];
   
   return {
     tiles,
     players,
-    structures: [],
-    currentPlayer: 0, // Start with player 0
+    structures,
+    ports,
+    currentPlayer: 0,
+    lastRoll: null,
+    gamePhase: 'setup',
+    longestRoadPlayerId: null,
+    largestArmyPlayerId: null
   };
-};
+}
 
 // Define the Catan game
 const CatanGame = {
@@ -119,7 +150,7 @@ const CatanGame = {
       const settlement: Structure = {
         id: generateId(),
         type: StructureType.Settlement,
-        playerId: playerID as string,
+        playerId: Number(playerID),
         coordinates
       };
       
@@ -150,7 +181,7 @@ const CatanGame = {
       const road: Structure = {
         id: generateId(),
         type: StructureType.Road,
-        playerId: playerID as string,
+        playerId: Number(playerID),
         coordinates
       };
       
@@ -175,7 +206,7 @@ const CatanGame = {
       const settlementIndex = G.structures.findIndex(
         s => s.id === settlementId && 
         s.type === StructureType.Settlement && 
-        s.playerId === playerID
+        s.playerId === Number(playerID)
       );
       
       if (settlementIndex === -1) {

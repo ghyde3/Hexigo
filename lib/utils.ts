@@ -7,7 +7,11 @@ import {
   StructureType, 
   BUILDING_COSTS,
   VertexCoordinates,
-  EdgeCoordinates
+  EdgeCoordinates,
+  CatanState,
+  Port,
+  PortType,
+  Structure
 } from './types';
 
 // Generate a random string ID
@@ -83,8 +87,38 @@ export function generateHexGrid(): HexCoordinates[] {
 }
 
 // Check if a player has enough resources to build a structure
-export function canBuild(player: Player, structureType: StructureType): boolean {
-  const cost = BUILDING_COSTS[structureType];
+export function canBuild(playerOrGame: Player | CatanState, structureTypeOrPlayerIndex: StructureType | number, structureType?: StructureType): boolean {
+  // Handle both function signatures:
+  // 1. canBuild(player: Player, structureType: StructureType)
+  // 2. canBuild(game: CatanState, playerIndex: number, structureType: StructureType)
+  
+  let player: Player;
+  let type: StructureType;
+  
+  if (structureType !== undefined) {
+    // Using the second signature with game state
+    const game = playerOrGame as CatanState;
+    const playerIndex = structureTypeOrPlayerIndex as number;
+    
+    // Make sure the player exists in the game
+    if (!game.players || !game.players[playerIndex]) {
+      return false;
+    }
+    
+    player = game.players[playerIndex];
+    type = structureType;
+  } else {
+    // Using the first signature with player directly
+    player = playerOrGame as Player;
+    type = structureTypeOrPlayerIndex as StructureType;
+  }
+  
+  // Make sure player.resources exists
+  if (!player || !player.resources) {
+    return false;
+  }
+  
+  const cost = BUILDING_COSTS[type];
   
   return Object.entries(cost).every(([resource, amount]) => {
     return player.resources[resource as ResourceType] >= amount;
@@ -155,4 +189,108 @@ export function collectResources(
       G.players[randomPlayerIndex].resources[tile.resource]++;
     }
   });
+}
+
+// Generate ports for the Catan board
+export function generatePorts(): Port[] {
+  // Define the port types according to Catan rules
+  const portTypes = [
+    PortType.Generic, PortType.Generic, PortType.Generic, PortType.Generic, // 4 generic ports (3:1)
+    PortType.Brick, PortType.Wood, PortType.Sheep, PortType.Wheat, PortType.Ore // 5 resource-specific ports (2:1)
+  ];
+  
+  // Shuffle the port types
+  const shuffledPortTypes = shuffleArray(portTypes);
+  
+  // Define the port locations on the edge of the board
+  const portLocations = [
+    // Each entry defines a hex coordinate and the direction (0-5) where the port is located
+    { coordinates: { q: -1, r: -2, s: 3 }, direction: 0 }, // Top-left
+    { coordinates: { q: 1, r: -2, s: 1 }, direction: 1 },  // Top-right
+    { coordinates: { q: 2, r: 0, s: -2 }, direction: 1 },  // Right-top
+    { coordinates: { q: 1, r: 1, s: -2 }, direction: 2 },  // Right-bottom
+    { coordinates: { q: 0, r: 2, s: -2 }, direction: 3 },  // Bottom-right
+    { coordinates: { q: -2, r: 2, s: 0 }, direction: 4 },  // Bottom-left
+    { coordinates: { q: -2, r: 0, s: 2 }, direction: 5 },  // Left-bottom
+    { coordinates: { q: -2, r: -1, s: 3 }, direction: 5 }, // Left-top
+    { coordinates: { q: 0, r: -2, s: 2 }, direction: 0 }   // Top-middle
+  ];
+  
+  // Create the ports
+  return portLocations.map((location, index) => {
+    // Calculate the two vertices where settlements can be built to use this port
+    const vertices = getPortVertices(location.coordinates, location.direction);
+    
+    return {
+      id: `port-${index}`,
+      type: shuffledPortTypes[index],
+      coordinates: location.coordinates,
+      direction: location.direction,
+      vertices
+    };
+  });
+}
+
+// Get the two vertices adjacent to a port
+export function getPortVertices(hexCoords: HexCoordinates, direction: number): VertexCoordinates[] {
+  // The two vertices are at the ends of the edge specified by direction
+  const vertex1: VertexCoordinates = {
+    q: hexCoords.q,
+    r: hexCoords.r,
+    s: hexCoords.s,
+    direction
+  };
+  
+  const vertex2: VertexCoordinates = {
+    q: hexCoords.q,
+    r: hexCoords.r,
+    s: hexCoords.s,
+    direction: (direction + 1) % 6
+  };
+  
+  return [vertex1, vertex2];
+}
+
+// Check if a player has access to a specific port
+export function hasAccessToPort(player: Player, port: Port, structures: Structure[]): boolean {
+  // Get all settlement and city structures owned by the player
+  const playerStructures = structures.filter(
+    s => s.playerId === player.id && 
+    (s.type === StructureType.Settlement || s.type === StructureType.City)
+  );
+  
+  // Check if any of the player's structures are on the port's vertices
+  return playerStructures.some(structure => {
+    const coords = structure.coordinates as VertexCoordinates;
+    
+    return port.vertices.some(vertex => 
+      vertex.q === coords.q && 
+      vertex.r === coords.r && 
+      vertex.s === coords.s && 
+      vertex.direction === coords.direction
+    );
+  });
+}
+
+// Get the trading ratio for a player and resource
+export function getTradingRatio(player: Player, resource: ResourceType, ports: Port[], structures: Structure[]): number {
+  // Default trading ratio is 4:1
+  let ratio = 4;
+  
+  // Check if player has access to a generic 3:1 port
+  const genericPort = ports.find(p => p.type === PortType.Generic && hasAccessToPort(player, p, structures));
+  if (genericPort) {
+    ratio = 3;
+  }
+  
+  // Check if player has access to a resource-specific 2:1 port for this resource
+  const resourcePort = ports.find(
+    p => p.type === resource && hasAccessToPort(player, p, structures)
+  );
+  
+  if (resourcePort) {
+    ratio = 2;
+  }
+  
+  return ratio;
 } 

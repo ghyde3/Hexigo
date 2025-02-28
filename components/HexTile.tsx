@@ -8,6 +8,7 @@ interface HexTileProps {
   width?: number;
   height?: number;
   onClick?: () => void;
+  hasRobber?: boolean;
 }
 
 const ResourceColors = {
@@ -28,13 +29,28 @@ const ResourceIcons = {
   [ResourceType.Ore]: '⛏️',
 };
 
+// Probability dots for each number (2-12)
+const ProbabilityDots: Record<number, number> = {
+  2: 1,
+  3: 2,
+  4: 3,
+  5: 4,
+  6: 5,
+  8: 5,
+  9: 4,
+  10: 3,
+  11: 2,
+  12: 1
+};
+
 const HexTile: React.FC<HexTileProps> = ({ 
   resource, 
   tokenNumber, 
   size = 100,
   width,
   height,
-  onClick 
+  onClick,
+  hasRobber = false
 }) => {
   // Use provided width/height or calculate from size
   const tileWidth = width || size;
@@ -48,70 +64,110 @@ const HexTile: React.FC<HexTileProps> = ({
   const tokenSize = minDimension * 0.45;
   const fontSize = minDimension * 0.22;
   const dotSize = minDimension * 0.035;
-  const dotMargin = minDimension * 0.01;
+  
+  // Generate probability dots
+  const renderProbabilityDots = () => {
+    if (!tokenNumber || !ProbabilityDots[tokenNumber]) return null;
+    
+    const dots = [];
+    const numDots = ProbabilityDots[tokenNumber];
+    const dotColor = isHighProbability ? 'bg-red-600' : 'bg-gray-800';
+    
+    for (let i = 0; i < numDots; i++) {
+      dots.push(
+        <div 
+          key={i}
+          className={`${dotColor} rounded-full`}
+          style={{ 
+            width: `${dotSize}px`, 
+            height: `${dotSize}px`,
+            margin: `0 ${dotSize * 0.3}px`
+          }}
+        />
+      );
+    }
+    
+    return (
+      <div className="flex justify-center mt-1">
+        {dots}
+      </div>
+    );
+  };
   
   return (
     <div 
-      className={`hexagon ${ResourceColors[resource]} relative flex items-center justify-center cursor-pointer hover:brightness-110 transition-all duration-200`}
+      className={`hexagon ${ResourceColors[resource]} flex items-center justify-center relative`}
       style={{ 
         width: `${tileWidth}px`, 
         height: `${tileHeight}px`,
-        boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.5)',
+        cursor: onClick ? 'pointer' : 'default'
       }}
       onClick={onClick}
     >
-      {/* Hex border */}
-      <div 
-        className="hexagon absolute top-0 left-0 w-full h-full border-2 border-amber-200 opacity-50"
-        style={{ 
-          width: `${tileWidth}px`, 
-          height: `${tileHeight}px`,
-        }}
-      />
+      {/* Resource icon */}
+      <div className="absolute text-4xl" style={{ fontSize: `${fontSize * 1.8}px` }}>
+        {ResourceIcons[resource]}
+      </div>
       
-      {/* Subtle texture overlay */}
-      <div 
-        className="hexagon absolute top-0 left-0 w-full h-full opacity-10 mix-blend-overlay"
-        style={{ 
-          width: `${tileWidth}px`, 
-          height: `${tileHeight}px`,
-          backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3Ccircle cx=\'13\' cy=\'13\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")',
-        }}
-      />
-      
-      <div className="flex flex-col items-center justify-center z-10">
-        <span className="text-2xl mb-2">{ResourceIcons[resource]}</span>
-        
-        {tokenNumber && (
-          <div 
-            className={`number-token ${isHighProbability ? 'high-probability' : ''} shadow-md`}
-            style={{
-              width: `${tokenSize}px`,
-              height: `${tokenSize}px`,
-              fontSize: `${fontSize}px`,
-              fontWeight: 'bold',
-              border: isHighProbability ? '2px solid #dc2626' : '1px solid #888',
-            }}
+      {/* Number token */}
+      {tokenNumber && resource !== ResourceType.Desert && (
+        <div 
+          className="number-token absolute bottom-4"
+          style={{ 
+            width: `${tokenSize}px`, 
+            height: `${tokenSize}px`,
+            boxShadow: isHighProbability ? '0 0 0 2px #e53e3e' : '0 0 0 2px #4a5568'
+          }}
+        >
+          <span 
+            className={`font-bold ${isHighProbability ? 'text-red-600' : 'text-gray-800'}`}
+            style={{ fontSize: `${fontSize}px` }}
           >
             {tokenNumber}
-            <div className="dots flex justify-center mt-1">
-              {Array.from({ length: tokenNumber === 2 || tokenNumber === 12 ? 1 : 
-                            tokenNumber === 3 || tokenNumber === 11 ? 2 : 
-                            tokenNumber === 4 || tokenNumber === 10 ? 3 : 
-                            tokenNumber === 5 || tokenNumber === 9 ? 4 : 5 }).map((_, i) => (
-                <div 
-                  key={i} 
-                  className={`rounded-full ${isHighProbability ? 'bg-red-600' : 'bg-black'}`}
-                  style={{ 
-                    width: `${dotSize}px`, 
-                    height: `${dotSize}px`,
-                    margin: `0 ${dotMargin}px` 
-                  }}
-                />
-              ))}
-            </div>
+          </span>
+          {renderProbabilityDots()}
+        </div>
+      )}
+      
+      {/* Robber */}
+      {hasRobber && (
+        <div className="absolute top-0 right-0 transform translate-x-1/4 -translate-y-1/4">
+          <div className="bg-gray-800 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg">
+            <span className="text-lg">🦹</span>
           </div>
-        )}
+        </div>
+      )}
+      
+      {/* Texture overlay */}
+      <div className="absolute inset-0 opacity-20">
+        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id={`texture-${resource}`} patternUnits="userSpaceOnUse" width="10" height="10">
+              {resource === ResourceType.Desert && (
+                <path d="M0 5 L10 5 M5 0 L5 10" stroke="currentColor" strokeWidth="0.5" strokeOpacity="0.3" />
+              )}
+              {resource === ResourceType.Brick && (
+                <rect width="5" height="2" fill="currentColor" fillOpacity="0.3" />
+              )}
+              {resource === ResourceType.Wood && (
+                <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" strokeWidth="0.5" strokeOpacity="0.3" />
+              )}
+              {resource === ResourceType.Sheep && (
+                <circle cx="5" cy="5" r="2" fill="currentColor" fillOpacity="0.3" />
+              )}
+              {resource === ResourceType.Wheat && (
+                <path d="M0 0 L10 10" stroke="currentColor" strokeWidth="0.5" strokeOpacity="0.3" />
+              )}
+              {resource === ResourceType.Ore && (
+                <rect width="3" height="3" fill="currentColor" fillOpacity="0.3" />
+              )}
+            </pattern>
+          </defs>
+          <polygon 
+            points={`${tileWidth/2},0 ${tileWidth},${tileHeight/4} ${tileWidth},${tileHeight*3/4} ${tileWidth/2},${tileHeight} 0,${tileHeight*3/4} 0,${tileHeight/4}`} 
+            fill={`url(#texture-${resource})`} 
+          />
+        </svg>
       </div>
     </div>
   );
