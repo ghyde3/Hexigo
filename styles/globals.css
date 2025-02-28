@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for Catan game */
+body {
+  @apply bg-gray-100 text-gray-900;
+}
+
+.hexagon {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* Number token styling */
+.number-token {
+  @apply rounded-full bg-white font-bold flex flex-col items-center justify-center shadow-md;
+  min-width: 2rem;
+  min-height: 2rem;
+}
+
+/* High probability styling (6 and 8) */
+.high-probability {
+  @apply text-red-600 font-extrabold;
+}
+
+/* Resource colors with texture */
+.bg-desert {
+  @apply bg-gradient-to-br from-desert to-desert/80;
+}
+
+.bg-brick {
+  @apply bg-gradient-to-br from-brick to-brick/80;
+}
+
+.bg-wood {
+  @apply bg-gradient-to-br from-wood to-wood/80;
+}
+
+.bg-sheep {
+  @apply bg-gradient-to-br from-sheep to-sheep/80;
+}
+
+.bg-wheat {
+  @apply bg-gradient-to-br from-wheat to-wheat/80;
+}
+
+.bg-ore {
+  @apply bg-gradient-to-br from-ore to-ore/80;
+} 
