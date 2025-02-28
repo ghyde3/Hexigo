@@ -5,6 +5,8 @@ import HexTile from './HexTile';
 interface GameBoardProps {
   tiles: Tile[];
   onTileClick?: (tile: Tile) => void;
+  isEditMode?: boolean;
+  onToggleEditMode?: () => void;
 }
 
 interface PlacedTile {
@@ -13,36 +15,31 @@ interface PlacedTile {
   r: number; // Axial grid coordinate
 }
 
-const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
-  const [tileWidth, setTileWidth] = useState(80); // Default tile width
-  const [tileHeight, setTileHeight] = useState(80); // Default tile height
-  const [gridSize, setGridSize] = useState({ width: 700, height: 600 }); // Slightly larger for better spacing
+const GameBoard: React.FC<GameBoardProps> = ({ 
+  tiles, 
+  onTileClick,
+  isEditMode = false,
+  onToggleEditMode
+}) => {
+  const [tileWidth, setTileWidth] = useState(120); // Updated default tile width
+  const [tileHeight, setTileHeight] = useState(120); // Updated default tile height
+  const [gridSize, setGridSize] = useState({ width: window.innerWidth, height: window.innerHeight - 200 }); // Use full screen width
   const [placedTiles, setPlacedTiles] = useState<PlacedTile[]>([]);
   const [draggingTile, setDraggingTile] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [showGridLines, setShowGridLines] = useState(true);
-  const [xSpacing, setXSpacing] = useState(0.59); // Updated default horizontal spacing
-  const [ySpacing, setYSpacing] = useState(0.45); // Updated default vertical spacing
-  const [snapThreshold, setSnapThreshold] = useState(0.1); // Updated default snap threshold
+  const [xSpacing, setXSpacing] = useState(0.6); // Updated default horizontal spacing
+  const [ySpacing, setYSpacing] = useState(0.52); // Updated default vertical spacing
+  const [snapThreshold, setSnapThreshold] = useState(0.1); // Default snap threshold
   const gridRef = useRef<HTMLDivElement>(null);
 
-  // Responsive tile sizing
+  // Responsive sizing
   useEffect(() => {
     const handleResize = () => {
-      const width = window.innerWidth;
-      if (width < 640) { // Small screens
-        setTileWidth(50);
-        setTileHeight(50);
-        setGridSize({ width: 400, height: 350 });
-      } else if (width < 1024) { // Medium screens
-        setTileWidth(65);
-        setTileHeight(65);
-        setGridSize({ width: 550, height: 450 });
-      } else { // Large screens
-        setTileWidth(80);
-        setTileHeight(80);
-        setGridSize({ width: 700, height: 600 });
-      }
+      setGridSize({ 
+        width: window.innerWidth, 
+        height: window.innerHeight - 200 // Leave some space for controls
+      });
     };
 
     handleResize(); // Set initial size
@@ -129,6 +126,8 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   // Handle mouse down (start dragging)
   const handleMouseDown = (e: React.MouseEvent, tileIndex: number) => {
+    if (!isEditMode) return; // Only allow dragging in edit mode
+    
     if (gridRef.current) {
       const rect = gridRef.current.getBoundingClientRect();
       const tile = placedTiles.find(t => t.tileIndex === tileIndex);
@@ -147,7 +146,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   // Handle mouse move (drag tile)
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (draggingTile === null || !gridRef.current) return;
+    if (draggingTile === null || !gridRef.current || !isEditMode) return;
 
     const rect = gridRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - dragOffset.x;
@@ -211,7 +210,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   // Render clear hexagonal grid lines
   const renderGridLines = () => {
-    if (!showGridLines) return null;
+    if (!showGridLines || !isEditMode) return null;
 
     const gridRadius = 4; // Reduced for a tighter, 19-tile layout
     const lines: React.ReactNode[] = [];
@@ -248,7 +247,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   // Render snap points (visual indicators for valid positions)
   const renderSnapPoints = () => {
-    if (draggingTile === null) return null;
+    if (draggingTile === null || !isEditMode) return null;
 
     const validPositions = getValidSnapPositions();
     return validPositions.map(pos => {
@@ -360,14 +359,14 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   const handleTileWidthInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
-    if (!isNaN(value) && value >= 40 && value <= 120) {
+    if (!isNaN(value) && value >= 40 && value <= 200) {
       setTileWidth(value);
     }
   };
 
   const handleTileHeightInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
-    if (!isNaN(value) && value >= 40 && value <= 120) {
+    if (!isNaN(value) && value >= 40 && value <= 200) {
       setTileHeight(value);
     }
   };
@@ -382,12 +381,11 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   // Preset configurations
   const presets = {
-    tight: { x: 0.57, y: 0.5, snap: 0.1, width: 70, height: 70 },
-    standard: { x: 0.59, y: 0.45, snap: 0.1, width: 80, height: 80 },
-    spacious: { x: 0.7, y: 0.6, snap: 0.3, width: 90, height: 90 },
-    custom1: { x: 0.55, y: 0.5, snap: 0.15, width: 75, height: 75 },
-    custom2: { x: 0.65, y: 0.55, snap: 0.2, width: 85, height: 85 },
-    perfectHex: { x: 0.866, y: 0.75, snap: 0.2, width: 80, height: 80 } // Perfect hexagon ratio
+    tight: { x: 0.57, y: 0.5, snap: 0.1, width: 100, height: 100 },
+    standard: { x: 0.6, y: 0.52, snap: 0.1, width: 120, height: 120 },
+    spacious: { x: 0.7, y: 0.6, snap: 0.3, width: 140, height: 140 },
+    perfectHex: { x: 0.866, y: 0.75, snap: 0.2, width: 120, height: 120 }, // Perfect hexagon ratio
+    custom1: { x: 0.55, y: 0.5, snap: 0.15, width: 110, height: 110 }
   };
 
   const applyPreset = (preset: keyof typeof presets) => {
@@ -403,195 +401,202 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
 
   return (
     <div className="flex flex-col items-center w-full">
-      <div className="mb-4 flex justify-between w-full max-w-3xl">
-        <h2 className="text-xl font-bold">Catan Board Designer</h2>
-        <button
-          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-          onClick={toggleGridLines}
-        >
-          {showGridLines ? 'Hide Grid' : 'Show Grid'}
-        </button>
-      </div>
-
-      {/* Grid controls */}
-      <div className="w-full max-w-3xl mb-4 p-3 border rounded-lg bg-gray-50">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-4">
-            <div className="w-32">Tile Width:</div>
-            <input 
-              type="range" 
-              min="40" 
-              max="120" 
-              step="1" 
-              value={tileWidth} 
-              onChange={handleTileWidthChange}
-              className="flex-grow"
-            />
-            <input
-              type="number"
-              min="40"
-              max="120"
-              step="1"
-              value={tileWidth}
-              onChange={handleTileWidthInput}
-              className="w-16 text-right px-1 border rounded"
-            />
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="w-32">Tile Height:</div>
-            <input 
-              type="range" 
-              min="40" 
-              max="120" 
-              step="1" 
-              value={tileHeight} 
-              onChange={handleTileHeightChange}
-              className="flex-grow"
-            />
-            <input
-              type="number"
-              min="40"
-              max="120"
-              step="1"
-              value={tileHeight}
-              onChange={handleTileHeightInput}
-              className="w-16 text-right px-1 border rounded"
-            />
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="w-32">Horizontal Spacing:</div>
-            <input 
-              type="range" 
-              min="0.1" 
-              max="2.0" 
-              step="0.01" 
-              value={xSpacing} 
-              onChange={handleXSpacingChange}
-              className="flex-grow"
-            />
-            <input
-              type="number"
-              min="0.1"
-              max="2.0"
-              step="0.01"
-              value={xSpacing}
-              onChange={handleXSpacingInput}
-              className="w-16 text-right px-1 border rounded"
-            />
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="w-32">Vertical Spacing:</div>
-            <input 
-              type="range" 
-              min="0.1" 
-              max="2.0" 
-              step="0.01" 
-              value={ySpacing} 
-              onChange={handleYSpacingChange}
-              className="flex-grow"
-            />
-            <input
-              type="number"
-              min="0.1"
-              max="2.0"
-              step="0.01"
-              value={ySpacing}
-              onChange={handleYSpacingInput}
-              className="w-16 text-right px-1 border rounded"
-            />
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="w-32">Snap Sensitivity:</div>
-            <input 
-              type="range" 
-              min="0.1" 
-              max="2.0" 
-              step="0.01" 
-              value={snapThreshold} 
-              onChange={handleSnapThresholdChange}
-              className="flex-grow"
-            />
-            <input
-              type="number"
-              min="0.1"
-              max="2.0"
-              step="0.01"
-              value={snapThreshold}
-              onChange={handleSnapThresholdInput}
-              className="w-16 text-right px-1 border rounded"
-            />
-          </div>
-          
-          <div className="flex flex-wrap justify-between mt-2">
-            <div className="flex gap-2">
-              <button 
-                className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
-                onClick={() => applyPreset('tight')}
-              >
-                Tight
-              </button>
-              <button 
-                className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
-                onClick={() => applyPreset('standard')}
-              >
-                Standard
-              </button>
-              <button 
-                className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
-                onClick={() => applyPreset('spacious')}
-              >
-                Spacious
-              </button>
-              <button 
-                className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
-                onClick={() => applyPreset('perfectHex')}
-              >
-                Perfect Hex
-              </button>
-              <button 
-                className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
-                onClick={() => applyPreset('custom1')}
-              >
-                Custom 1
-              </button>
-            </div>
-            <button 
-              className="px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-              onClick={resetToDefaults}
+      {/* Top bar with controls */}
+      <div className="fixed top-0 left-0 right-0 z-10 bg-white shadow-md p-2 flex justify-between items-center">
+        <h2 className="text-xl font-bold ml-4">Hexigo</h2>
+        <div className="flex items-center gap-2">
+          {isEditMode && (
+            <button
+              className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
+              onClick={toggleGridLines}
             >
-              Reset to Defaults
+              {showGridLines ? 'Hide Grid' : 'Show Grid'}
             </button>
-          </div>
+          )}
+          <button
+            className="p-2 bg-gray-200 rounded-full hover:bg-gray-300 mr-4 flex items-center justify-center"
+            onClick={onToggleEditMode}
+            title={isEditMode ? "Switch to Game Mode" : "Switch to Edit Mode"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
         </div>
       </div>
 
+      {/* Edit mode controls */}
+      {isEditMode && (
+        <div className="fixed top-16 left-0 right-0 z-10 bg-gray-50 shadow-md p-3">
+          <div className="flex flex-col gap-3 max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-24">Tile Width:</div>
+                <input 
+                  type="range" 
+                  min="40" 
+                  max="200" 
+                  step="1" 
+                  value={tileWidth} 
+                  onChange={handleTileWidthChange}
+                  className="flex-grow"
+                />
+                <input
+                  type="number"
+                  min="40"
+                  max="200"
+                  step="1"
+                  value={tileWidth}
+                  onChange={handleTileWidthInput}
+                  className="w-16 text-right px-1 border rounded"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="w-24">Tile Height:</div>
+                <input 
+                  type="range" 
+                  min="40" 
+                  max="200" 
+                  step="1" 
+                  value={tileHeight} 
+                  onChange={handleTileHeightChange}
+                  className="flex-grow"
+                />
+                <input
+                  type="number"
+                  min="40"
+                  max="200"
+                  step="1"
+                  value={tileHeight}
+                  onChange={handleTileHeightInput}
+                  className="w-16 text-right px-1 border rounded"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="w-24">H-Spacing:</div>
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="2.0" 
+                  step="0.01" 
+                  value={xSpacing} 
+                  onChange={handleXSpacingChange}
+                  className="flex-grow"
+                />
+                <input
+                  type="number"
+                  min="0.1"
+                  max="2.0"
+                  step="0.01"
+                  value={xSpacing}
+                  onChange={handleXSpacingInput}
+                  className="w-16 text-right px-1 border rounded"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="w-24">V-Spacing:</div>
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="2.0" 
+                  step="0.01" 
+                  value={ySpacing} 
+                  onChange={handleYSpacingChange}
+                  className="flex-grow"
+                />
+                <input
+                  type="number"
+                  min="0.1"
+                  max="2.0"
+                  step="0.01"
+                  value={ySpacing}
+                  onChange={handleYSpacingInput}
+                  className="w-16 text-right px-1 border rounded"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="w-24">Snap:</div>
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="2.0" 
+                  step="0.01" 
+                  value={snapThreshold} 
+                  onChange={handleSnapThresholdChange}
+                  className="flex-grow"
+                />
+                <input
+                  type="number"
+                  min="0.1"
+                  max="2.0"
+                  step="0.01"
+                  value={snapThreshold}
+                  onChange={handleSnapThresholdInput}
+                  className="w-16 text-right px-1 border rounded"
+                />
+              </div>
+            </div>
+            
+            <div className="flex flex-wrap justify-between mt-2">
+              <div className="flex gap-2">
+                <button 
+                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
+                  onClick={() => applyPreset('tight')}
+                >
+                  Tight
+                </button>
+                <button 
+                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
+                  onClick={() => applyPreset('standard')}
+                >
+                  Standard
+                </button>
+                <button 
+                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
+                  onClick={() => applyPreset('spacious')}
+                >
+                  Spacious
+                </button>
+                <button 
+                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
+                  onClick={() => applyPreset('perfectHex')}
+                >
+                  Perfect Hex
+                </button>
+                <button 
+                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs"
+                  onClick={() => applyPreset('custom1')}
+                >
+                  Custom 1
+                </button>
+              </div>
+              <button 
+                className="px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+                onClick={resetToDefaults}
+              >
+                Reset to Defaults
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         ref={gridRef}
-        className="relative border-2 border-gray-300 rounded-lg bg-gray-100 mb-4"
+        className="relative bg-blue-500 w-full"
         style={{
-          width: `${gridSize.width}px`,
           height: `${gridSize.height}px`,
+          marginTop: isEditMode ? '140px' : '60px', // Adjust for the top bar and edit controls
           cursor: draggingTile !== null ? 'grabbing' : 'default',
         }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
       >
-        {/* Blue circular water background */}
-        <div
-          className="absolute rounded-full bg-blue-500"
-          style={{
-            width: '70%', // Adjusted to fit tighter layout
-            height: '70%',
-            top: '15%',
-            left: '15%',
-            zIndex: 0,
-          }}
-        />
-
         {/* Render grid lines */}
         {renderGridLines()}
 
@@ -608,7 +613,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
           return (
             <div
               key={tile.id}
-              className="absolute cursor-grab active:cursor-grabbing"
+              className={`absolute ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
               style={{
                 left: `${x}px`,
                 top: `${y}px`,
@@ -616,6 +621,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
                 transform: 'translate(-50%, -50%)',
               }}
               onMouseDown={(e) => handleMouseDown(e, placed.tileIndex)}
+              onClick={() => !isEditMode && onTileClick && onTileClick(tile)}
             >
               <HexTile
                 resource={tile.resource}
@@ -623,27 +629,25 @@ const GameBoard: React.FC<GameBoardProps> = ({ tiles, onTileClick }) => {
                 size={Math.min(tileWidth, tileHeight)} // Use the smaller dimension for the tile size
                 width={tileWidth}
                 height={tileHeight}
-                onClick={() => onTileClick && onTileClick(tile)}
               />
             </div>
           );
         })}
       </div>
 
-      {/* Coordinate output */}
-      <div className="w-full max-w-3xl">
-        <h3 className="text-lg font-semibold mb-2">Board Layout Coordinates:</h3>
-        <textarea
-          className="w-full h-32 p-2 font-mono text-sm border rounded-md"
-          value={coordinateOutput}
-          readOnly
-        />
-        <p className="text-sm text-gray-600 mt-2">
-          <strong>Instructions:</strong> Drag and drop the tiles onto the grid. Tiles will snap to
-          valid positions next to existing tiles. Use the sliders above to adjust grid spacing.
-          Once you've created the Catan board layout, copy the coordinates above.
-        </p>
-      </div>
+      {/* Coordinate output (only in edit mode) */}
+      {isEditMode && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 z-10">
+          <div className="max-w-6xl mx-auto">
+            <h3 className="text-lg font-semibold mb-2">Board Layout Coordinates:</h3>
+            <textarea
+              className="w-full h-32 p-2 font-mono text-sm border rounded-md"
+              value={coordinateOutput}
+              readOnly
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
