@@ -104,15 +104,15 @@ const HexTile: React.FC<HexTileProps> = ({
       }}
       onClick={onClick}
     >
-      {/* Resource icon */}
-      <div className="absolute text-4xl" style={{ fontSize: `${fontSize * 1.8}px` }}>
+      {/* Resource icon - moved to top */}
+      <div className="absolute top-1/4 text-4xl" style={{ fontSize: `${fontSize * 1.8}px` }}>
         {ResourceIcons[resource]}
       </div>
       
-      {/* Number token */}
+      {/* Number token - moved to bottom */}
       {tokenNumber && resource !== ResourceType.Desert && (
         <div 
-          className="number-token absolute bottom-4"
+          className="number-token absolute bottom-1/4"
           style={{ 
             width: `${tokenSize}px`, 
             height: `${tokenSize}px`,

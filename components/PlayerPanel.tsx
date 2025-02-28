@@ -145,20 +145,22 @@ const PlayerPanel: React.FC<PlayerPanelProps> = ({
             }`}
             onClick={() => onPlayerChange(index)}
           >
-            {player.name}
+            <div className="flex items-center justify-center">
+              {player.name}
+              {/* Achievement icons */}
+              <div className="flex ml-1">
+                {hasLongestRoad === index && (
+                  <span className="text-xs" title="Longest Road">🛣️</span>
+                )}
+                {hasLargestArmy === index && (
+                  <span className="text-xs ml-1" title="Largest Army">⚔️</span>
+                )}
+              </div>
+            </div>
             {/* Active player indicator */}
             {index === currentPlayer && (
               <span className="absolute top-0 right-0 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
             )}
-            {/* Special card indicators */}
-            <div className="absolute top-0 left-0 flex">
-              {hasLongestRoad === index && (
-                <span className="text-xs bg-blue-500 text-white rounded-sm px-1 mr-1" title="Longest Road">🛣️</span>
-              )}
-              {hasLargestArmy === index && (
-                <span className="text-xs bg-red-500 text-white rounded-sm px-1" title="Largest Army">⚔️</span>
-              )}
-            </div>
           </button>
         ))}
       </div>
@@ -177,6 +179,15 @@ const PlayerPanel: React.FC<PlayerPanelProps> = ({
                 <span className="ml-2 bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md text-sm font-medium">
                   {players[currentPlayer].victoryPoints} / 10
                 </span>
+                {/* Achievement icons in player details */}
+                <div className="flex ml-2">
+                  {hasLongestRoad === currentPlayer && (
+                    <span className="text-sm bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center mr-1" title="Longest Road">🛣️</span>
+                  )}
+                  {hasLargestArmy === currentPlayer && (
+                    <span className="text-sm bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Largest Army">⚔️</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

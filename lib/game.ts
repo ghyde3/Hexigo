@@ -129,6 +129,26 @@ const CatanGame = {
       return G;
     },
     
+    // Roll dice with specific values (for UI consistency)
+    rollDiceWithValues: ({ G, ctx }, die1: number, die2: number) => {
+      const diceSum = die1 + die2;
+      
+      // Collect resources for all players based on the dice roll
+      collectResources(G, diceSum);
+      
+      // Update the last roll
+      G.lastRoll = { die1, die2, sum: diceSum };
+      
+      return G;
+    },
+    
+    // Clear last roll data (used when ending a turn)
+    clearLastRoll: ({ G }) => {
+      // Reset the lastRoll property to null or undefined
+      G.lastRoll = undefined;
+      return G;
+    },
+    
     // Build a settlement
     buildSettlement: ({ G, ctx, playerID }, coordinates: VertexCoordinates) => {
       // Validate player has resources
@@ -225,8 +245,8 @@ const CatanGame = {
       return G;
     },
     
-    // For POC: Add resources to current player
-    addResources: ({ G, ctx, playerID }, amount: number = 1) => {
+    // Add resources (for testing)
+    addResources: ({ G, ctx, playerID }, amount: number = 5) => {
       const player = G.players[Number(playerID)];
       
       // Add some of each resource
@@ -235,6 +255,84 @@ const CatanGame = {
       player.resources[ResourceType.Sheep] += amount;
       player.resources[ResourceType.Wheat] += amount;
       player.resources[ResourceType.Ore] += amount;
+      
+      return G;
+    },
+    
+    // Move the robber to a new tile
+    moveRobber: ({ G, ctx }, currentRobberTileIndex: number, newRobberTileIndex: number) => {
+      // Create a new tiles array
+      const newTiles = [...G.tiles];
+      
+      // Remove the robber from the current tile if it exists
+      if (currentRobberTileIndex !== -1) {
+        newTiles[currentRobberTileIndex] = {
+          ...newTiles[currentRobberTileIndex],
+          hasRobber: false
+        };
+      }
+      
+      // Place the robber on the new tile
+      newTiles[newRobberTileIndex] = {
+        ...newTiles[newRobberTileIndex],
+        hasRobber: true
+      };
+      
+      // Update the tiles array in the game state
+      G.tiles = newTiles;
+      
+      return G;
+    },
+    
+    // Steal a resource from one player and give it to another
+    stealResource: ({ G, ctx }, fromPlayerIndex: number, toPlayerIndex: number, resource: ResourceType) => {
+      // Create new player objects with updated resources
+      const updatedPlayers = [...G.players];
+      
+      // Create a copy of the source player with decremented resource
+      updatedPlayers[fromPlayerIndex] = {
+        ...updatedPlayers[fromPlayerIndex],
+        resources: {
+          ...updatedPlayers[fromPlayerIndex].resources,
+          [resource]: updatedPlayers[fromPlayerIndex].resources[resource] - 1
+        }
+      };
+      
+      // Create a copy of the target player with incremented resource
+      updatedPlayers[toPlayerIndex] = {
+        ...updatedPlayers[toPlayerIndex],
+        resources: {
+          ...updatedPlayers[toPlayerIndex].resources,
+          [resource]: updatedPlayers[toPlayerIndex].resources[resource] + 1
+        }
+      };
+      
+      // Update the players array in the game state
+      G.players = updatedPlayers;
+      
+      return G;
+    },
+    
+    // Discard resources from a player's hand (for robber)
+    discardResources: ({ G, ctx }, playerIndex: number, resourcesMap: Record<ResourceType, number>) => {
+      // Create new player object with updated resources
+      const player = G.players[playerIndex];
+      const updatedResources = { ...player.resources };
+      
+      // Decrement each resource type
+      Object.entries(resourcesMap).forEach(([resource, count]) => {
+        updatedResources[resource as ResourceType] -= count;
+      });
+      
+      // Update the player in the game state
+      G.players = [
+        ...G.players.slice(0, playerIndex),
+        {
+          ...player,
+          resources: updatedResources
+        },
+        ...G.players.slice(playerIndex + 1)
+      ];
       
       return G;
     }

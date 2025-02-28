@@ -8,7 +8,7 @@ import TurnControls from '../components/TurnControls';
 import GameLog, { LogEntry, LogEntryType } from '../components/GameLog';
 import BankPanel, { DevelopmentCardType } from '../components/BankPanel';
 import EndGameModal from '../components/EndGameModal';
-import CatanGame from '../lib/game';
+import CatanGame, { createInitialState } from '../lib/game';
 import { canBuild, rollDice, hasAccessToPort, getTradingRatio } from '../lib/utils';
 import { StructureType, CatanState, Player, ResourceType } from '../lib/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -81,6 +81,7 @@ const CatanGameComponent: React.FC<{
         const savedTurnControlsPosition = localStorage.getItem('turnControlsPosition');
         const savedGameLogPosition = localStorage.getItem('gameLogPosition');
         const savedBankPanelPosition = localStorage.getItem('bankPanelPosition');
+        const savedSelectedPlayer = localStorage.getItem('catanSelectedPlayer');
         
         if (savedPlayerPanelPosition) {
           setPlayerPanelPosition(JSON.parse(savedPlayerPanelPosition));
@@ -93,6 +94,10 @@ const CatanGameComponent: React.FC<{
         }
         if (savedBankPanelPosition) {
           setBankPanelPosition(JSON.parse(savedBankPanelPosition));
+        }
+        if (savedSelectedPlayer) {
+          const selectedPlayerIndex = parseInt(savedSelectedPlayer, 10);
+          setSelectedPlayer(selectedPlayerIndex);
         }
       } catch (error) {
         console.error('Error loading panel positions from localStorage:', error);
@@ -122,21 +127,146 @@ const CatanGameComponent: React.FC<{
   };
   
   // Game state
-  const [bankResources, setBankResources] = useState(INITIAL_BANK_RESOURCES);
-  const [developmentCards, setDevelopmentCards] = useState(INITIAL_DEVELOPMENT_CARDS);
-  const [playerDevelopmentCards, setPlayerDevelopmentCards] = useState<Record<number, Record<DevelopmentCardType, number>>>({});
-  const [logEntries, setLogEntries] = useState<LogEntry[]>([
-    {
-      id: uuidv4(),
-      type: LogEntryType.SYSTEM,
-      timestamp: new Date(),
-      message: 'Game started'
+  const [bankResources, setBankResources] = useState(() => {
+    try {
+      const savedBankResources = localStorage.getItem('catanBankResources');
+      return savedBankResources ? JSON.parse(savedBankResources) : INITIAL_BANK_RESOURCES;
+    } catch (error) {
+      return INITIAL_BANK_RESOURCES;
     }
-  ]);
-  const [hasLongestRoad, setHasLongestRoad] = useState<number | null>(null);
-  const [hasLargestArmy, setHasLargestArmy] = useState<number | null>(null);
+  });
+  
+  const [developmentCards, setDevelopmentCards] = useState(() => {
+    try {
+      const savedDevelopmentCards = localStorage.getItem('catanDevelopmentCards');
+      return savedDevelopmentCards ? JSON.parse(savedDevelopmentCards) : INITIAL_DEVELOPMENT_CARDS;
+    } catch (error) {
+      return INITIAL_DEVELOPMENT_CARDS;
+    }
+  });
+  
+  const [playerDevelopmentCards, setPlayerDevelopmentCards] = useState<Record<number, Record<DevelopmentCardType, number>>>(() => {
+    try {
+      const savedPlayerDevelopmentCards = localStorage.getItem('catanPlayerDevelopmentCards');
+      return savedPlayerDevelopmentCards ? JSON.parse(savedPlayerDevelopmentCards) : {};
+    } catch (error) {
+      return {};
+    }
+  });
+  
+  const [logEntries, setLogEntries] = useState<LogEntry[]>(() => {
+    try {
+      const savedLogEntries = localStorage.getItem('catanLogEntries');
+      if (savedLogEntries) {
+        // Parse log entries and restore Date objects
+        const entries = JSON.parse(savedLogEntries);
+        return entries.map((entry: any) => ({
+          ...entry,
+          timestamp: new Date(entry.timestamp)
+        }));
+      }
+      return [
+        {
+          id: uuidv4(),
+          type: LogEntryType.SYSTEM,
+          timestamp: new Date(),
+          message: 'Game started'
+        }
+      ];
+    } catch (error) {
+      return [
+        {
+          id: uuidv4(),
+          type: LogEntryType.SYSTEM,
+          timestamp: new Date(),
+          message: 'Game started'
+        }
+      ];
+    }
+  });
+  
+  const [hasLongestRoad, setHasLongestRoad] = useState<number | null>(() => {
+    try {
+      const savedLongestRoad = localStorage.getItem('catanLongestRoad');
+      return savedLongestRoad ? JSON.parse(savedLongestRoad) : null;
+    } catch (error) {
+      return null;
+    }
+  });
+  
+  const [hasLargestArmy, setHasLargestArmy] = useState<number | null>(() => {
+    try {
+      const savedLargestArmy = localStorage.getItem('catanLargestArmy');
+      return savedLargestArmy ? JSON.parse(savedLargestArmy) : null;
+    } catch (error) {
+      return null;
+    }
+  });
+  
+  const [lastRollTime, setLastRollTime] = useState<number>(0);
   
   const currentPlayer = G.players[selectedPlayer];
+  
+  // Save game state to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('catanGameState', JSON.stringify(G));
+      localStorage.setItem('catanGameMetadata', JSON.stringify({
+        ctx,
+        lastUpdateTime: new Date().toISOString()
+      }));
+    }
+  }, [G, ctx]);
+  
+  // Save selected player to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanSelectedPlayer', selectedPlayer.toString());
+  }, [selectedPlayer]);
+  
+  // Save bank resources to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanBankResources', JSON.stringify(bankResources));
+  }, [bankResources]);
+  
+  // Save development cards to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanDevelopmentCards', JSON.stringify(developmentCards));
+  }, [developmentCards]);
+  
+  // Save player development cards to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanPlayerDevelopmentCards', JSON.stringify(playerDevelopmentCards));
+  }, [playerDevelopmentCards]);
+  
+  // Save log entries to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanLogEntries', JSON.stringify(logEntries));
+  }, [logEntries]);
+  
+  // Save longest road and largest army to localStorage
+  useEffect(() => {
+    localStorage.setItem('catanLongestRoad', JSON.stringify(hasLongestRoad));
+  }, [hasLongestRoad]);
+  
+  useEffect(() => {
+    localStorage.setItem('catanLargestArmy', JSON.stringify(hasLargestArmy));
+  }, [hasLargestArmy]);
+  
+  // Force re-render when dice are rolled
+  useEffect(() => {
+    if (G.lastRoll) {
+      console.log("Detected dice roll update:", G.lastRoll);
+      // Log the actual values to see if they're valid numbers
+      console.log("Die values:", {
+        die1: G.lastRoll.die1, 
+        die2: G.lastRoll.die2,
+        sum: G.lastRoll.sum,
+        isNum1: typeof G.lastRoll.die1 === 'number',
+        isNum2: typeof G.lastRoll.die2 === 'number'
+      });
+      setLastRollTime(Date.now());
+    }
+  }, [G.lastRoll]);
   
   // Determine if the current player can build each structure type
   const canBuildRoad = canBuild(G, selectedPlayer, StructureType.Road);
@@ -196,12 +326,9 @@ const CatanGameComponent: React.FC<{
   
   // Handle dice rolling
   const handleRollDice = () => {
-    // Roll the dice
+    // Roll the dice locally first, so we have values to use
     const [die1, die2] = rollDice();
     const diceSum = die1 + die2;
-    
-    // Update the last roll in the game state
-    moves.rollDice();
     
     // Log the dice roll
     addLogEntry(
@@ -209,6 +336,13 @@ const CatanGameComponent: React.FC<{
       `Rolled ${diceSum} (${die1} + ${die2})`, 
       selectedPlayer
     );
+    
+    console.log("Rolling dice with values:", die1, die2);
+    
+    // Update the game state - pass our dice values to ensure consistency
+    moves.rollDiceWithValues(die1, die2);
+    
+    console.log("After roll, Game state lastRoll:", G.lastRoll);
     
     // Distribute resources based on the roll
     distributeResources(diceSum);
@@ -325,11 +459,18 @@ const CatanGameComponent: React.FC<{
         // In a full implementation, we would prompt the player to select which cards to discard
         // For now, we'll simulate this by randomly discarding cards
         let remainingToDiscard = discardCount;
+        const resourcesMap: Record<ResourceType, number> = {
+          [ResourceType.Brick]: 0,
+          [ResourceType.Wood]: 0,
+          [ResourceType.Sheep]: 0,
+          [ResourceType.Wheat]: 0,
+          [ResourceType.Ore]: 0
+        };
         
         while (remainingToDiscard > 0) {
           // Get all resources the player has
           const availableResources = Object.entries(player.resources)
-            .filter(([_, count]) => count > 0)
+            .filter(([resource, count]) => count > resourcesMap[resource as ResourceType])
             .map(([resource]) => resource as ResourceType);
           
           if (availableResources.length === 0) break;
@@ -337,8 +478,8 @@ const CatanGameComponent: React.FC<{
           // Randomly select a resource to discard
           const resourceToDiscard = availableResources[Math.floor(Math.random() * availableResources.length)];
           
-          // Discard one of that resource
-          G.players[index].resources[resourceToDiscard]--;
+          // Track the resource to discard
+          resourcesMap[resourceToDiscard]++;
           
           // Add it back to the bank
           setBankResources(prev => ({
@@ -348,6 +489,9 @@ const CatanGameComponent: React.FC<{
           
           remainingToDiscard--;
         }
+        
+        // Use the move to discard the resources
+        moves.discardResources(index, resourcesMap);
       }
     });
     
@@ -358,11 +502,6 @@ const CatanGameComponent: React.FC<{
     // Find the current robber tile (if any)
     const currentRobberTileIndex = G.tiles.findIndex(tile => tile.hasRobber);
     
-    // Remove the robber from the current tile
-    if (currentRobberTileIndex !== -1) {
-      G.tiles[currentRobberTileIndex].hasRobber = false;
-    }
-    
     // Find all tiles that don't have the robber
     const eligibleTiles = G.tiles.filter(tile => !tile.hasRobber);
     
@@ -370,10 +509,12 @@ const CatanGameComponent: React.FC<{
     const newRobberTileIndex = Math.floor(Math.random() * eligibleTiles.length);
     const newRobberTile = eligibleTiles[newRobberTileIndex];
     
-    // Place the robber on the new tile
+    // Find the index of the new robber tile in the original tiles array
     const tileIndex = G.tiles.findIndex(tile => tile.id === newRobberTile.id);
+    
     if (tileIndex !== -1) {
-      G.tiles[tileIndex].hasRobber = true;
+      // Use a move to update the tiles with the robber's new location
+      moves.moveRobber(currentRobberTileIndex, tileIndex);
       
       addLogEntry(
         LogEntryType.ROBBER,
@@ -403,9 +544,8 @@ const CatanGameComponent: React.FC<{
           // Randomly select a resource to steal
           const resourceToSteal = availableResources[Math.floor(Math.random() * availableResources.length)];
           
-          // Steal one of that resource
-          G.players[actualTargetIndex].resources[resourceToSteal]--;
-          G.players[selectedPlayer].resources[resourceToSteal]++;
+          // Use the move to steal the resource instead of directly modifying state
+          moves.stealResource(actualTargetIndex, selectedPlayer, resourceToSteal);
           
           addLogEntry(
             LogEntryType.ROBBER,
@@ -736,12 +876,24 @@ const CatanGameComponent: React.FC<{
     events.endTurn();
     const nextPlayer = (selectedPlayer + 1) % NUM_PLAYERS;
     setSelectedPlayer(nextPlayer);
+    
+    // Clear the dice roll when ending a turn
+    // This explicit call to moves.clearLastRoll() will reset G.lastRoll
+    moves.clearLastRoll();
+    // Force a UI update by setting lastRollTime even though we're clearing the roll
+    setLastRollTime(Date.now());
+    
     addLogEntry(LogEntryType.SYSTEM, `Player ${G.players[nextPlayer].name}'s turn`);
   };
   
   // Handle time expired
   const handleTimeExpired = () => {
     addLogEntry(LogEntryType.SYSTEM, 'Time expired, ending turn automatically', selectedPlayer);
+    
+    // Clear dice roll values when time expires
+    moves.clearLastRoll();
+    setLastRollTime(Date.now());
+    
     handleEndTurn();
   };
   
@@ -823,7 +975,9 @@ const CatanGameComponent: React.FC<{
       {/* Turn controls */}
       <TurnControls 
         currentPlayer={G.players[selectedPlayer]}
-        diceRoll={G.lastRoll ? [G.lastRoll.die1, G.lastRoll.die2] : undefined}
+        diceRoll={G.lastRoll && typeof G.lastRoll.die1 === 'number' && typeof G.lastRoll.die2 === 'number' 
+          ? [G.lastRoll.die1, G.lastRoll.die2] 
+          : undefined}
         onRollDice={handleRollDice}
         onBuildRoad={handleBuildRoad}
         onBuildSettlement={handleBuildSettlement}
@@ -837,6 +991,7 @@ const CatanGameComponent: React.FC<{
         onDragEnd={handleTurnControlsDragEnd}
         turnTimeLimit={120}
         onTimeExpired={handleTimeExpired}
+        lastRollTime={lastRollTime}
       />
       
       {/* Game log */}
@@ -861,6 +1016,9 @@ const CatanGameComponent: React.FC<{
         currentPlayer={G.players[selectedPlayer]}
         structures={G.structures}
         ports={G.ports}
+        hasLongestRoad={G.longestRoadPlayer}
+        hasLargestArmy={G.largestArmyPlayer}
+        players={G.players}
       />
       
       {/* End Game Modal */}
@@ -876,7 +1034,17 @@ const CatanGameComponent: React.FC<{
 
 // Create the Boardgame.io client
 const CatanClient = Client({
-  game: CatanGame,
+  game: {
+    ...CatanGame,
+    setup: (ctx, setupData) => {
+      // If we have saved state, use it, otherwise create a new initial state
+      if (setupData && setupData.savedState) {
+        console.log('Restoring saved game state');
+        return setupData.savedState;
+      }
+      return createInitialState(ctx.numPlayers);
+    }
+  },
   numPlayers: NUM_PLAYERS,
   board: CatanGameComponent,
   multiplayer: Local(),  // Local multiplayer (no server needed)
@@ -888,33 +1056,58 @@ const GamePage: React.FC = () => {
   // Use client-side rendering for Boardgame.io
   const [mounted, setMounted] = useState(false);
   const [key, setKey] = useState(0); // Add a key state to force re-render for new game
+  const [savedState, setSavedState] = useState<any>(null);
   
+  // Load game state from localStorage
   useEffect(() => {
     setMounted(true);
     console.log('Boardgame.io client mounted');
     
-    // Save the game state to localStorage whenever it changes
-    const handleBeforeUnload = () => {
-      // Implement localStorage persistence if needed
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    // Try to load the saved game state
+    if (typeof window !== 'undefined') {
+      try {
+        const savedGameState = localStorage.getItem('catanGameState');
+        const savedGameMetadata = localStorage.getItem('catanGameMetadata');
+        
+        if (savedGameState && savedGameMetadata) {
+          const gameState = JSON.parse(savedGameState);
+          console.log('Loaded saved game state from localStorage', gameState);
+          setSavedState(gameState);
+        }
+      } catch (error) {
+        console.error('Error loading game state from localStorage:', error);
+      }
+    }
   }, []);
   
-  // Function to reset the game by changing the key
+  // Function to reset the game by changing the key and clearing saved state
   const resetGame = () => {
+    // Clear saved game state
+    localStorage.removeItem('catanGameState');
+    localStorage.removeItem('catanGameMetadata');
+    localStorage.removeItem('catanLogEntries');
+    localStorage.removeItem('catanBankResources');
+    localStorage.removeItem('catanDevelopmentCards');
+    localStorage.removeItem('catanPlayerDevelopmentCards');
+    localStorage.removeItem('catanLongestRoad');
+    localStorage.removeItem('catanLargestArmy');
+    localStorage.removeItem('catanSelectedPlayer');
+    
+    // Reset state key to force re-render
     setKey(prevKey => prevKey + 1);
+    setSavedState(null);
   };
   
   if (!mounted) {
     return <div className="flex justify-center items-center min-h-screen">Loading Hexigo...</div>;
   }
   
-  return <CatanClient key={key} playerID="0" reset={resetGame} />;
+  return <CatanClient 
+    key={key} 
+    playerID="0" 
+    reset={resetGame} 
+    setupData={{ savedState }}
+  />;
 };
 
 export default GamePage; 

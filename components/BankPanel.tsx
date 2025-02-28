@@ -31,6 +31,9 @@ interface BankPanelProps {
   currentPlayer?: Player;
   structures?: Structure[];
   ports?: Port[];
+  hasLongestRoad?: number | null;
+  hasLargestArmy?: number | null;
+  players?: Player[];
 }
 
 const ResourceEmojis = {
@@ -76,20 +79,55 @@ const BankPanel: React.FC<BankPanelProps> = ({
   onDragEnd,
   currentPlayer,
   structures = [],
-  ports = []
+  ports = [],
+  hasLongestRoad = null,
+  hasLargestArmy = null,
+  players = []
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [panelPosition, setPanelPosition] = useState(position);
   const [showCosts, setShowCosts] = useState(false);
-  const [showTradeInterface, setShowTradeInterface] = useState(false);
+  const [showTradeInterface, setShowTradeInterface] = useState(() => {
+    const saved = localStorage.getItem('bankPanelShowTradeInterface');
+    return saved ? JSON.parse(saved) : false;
+  });
   const [tradeGiveResource, setTradeGiveResource] = useState<ResourceType | null>(null);
   const [tradeReceiveResource, setTradeReceiveResource] = useState<ResourceType | null>(null);
+  const [showDevCards, setShowDevCards] = useState(() => {
+    const saved = localStorage.getItem('bankPanelShowDevCards');
+    return saved ? JSON.parse(saved) : true;
+  });
+  const [showBuildingCosts, setShowBuildingCosts] = useState(() => {
+    const saved = localStorage.getItem('bankPanelShowBuildingCosts');
+    return saved ? JSON.parse(saved) : true;
+  });
+  const [showAchievements, setShowAchievements] = useState(() => {
+    const saved = localStorage.getItem('bankPanelShowAchievements');
+    return saved ? JSON.parse(saved) : true;
+  });
 
   // Update panel position when the position prop changes
   useEffect(() => {
     setPanelPosition(position);
   }, [position]);
+
+  // Save UI state to localStorage
+  useEffect(() => {
+    localStorage.setItem('bankPanelShowTradeInterface', JSON.stringify(showTradeInterface));
+  }, [showTradeInterface]);
+
+  useEffect(() => {
+    localStorage.setItem('bankPanelShowDevCards', JSON.stringify(showDevCards));
+  }, [showDevCards]);
+
+  useEffect(() => {
+    localStorage.setItem('bankPanelShowBuildingCosts', JSON.stringify(showBuildingCosts));
+  }, [showBuildingCosts]);
+
+  useEffect(() => {
+    localStorage.setItem('bankPanelShowAchievements', JSON.stringify(showAchievements));
+  }, [showAchievements]);
 
   // Calculate total development cards
   const totalDevelopmentCards = Object.values(developmentCards).reduce((sum, count) => sum + count, 0);
@@ -152,6 +190,27 @@ const BankPanel: React.FC<BankPanelProps> = ({
   // Get player's accessible ports
   const playerPorts = getPlayerPorts();
 
+  // Toggle section visibility with stopPropagation to prevent drag
+  const toggleTradeInterface = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent drag start
+    setShowTradeInterface(!showTradeInterface);
+  };
+
+  const toggleDevCards = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent drag start
+    setShowDevCards(!showDevCards);
+  };
+
+  const toggleBuildingCosts = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent drag start
+    setShowBuildingCosts(!showBuildingCosts);
+  };
+
+  const toggleAchievements = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent drag start
+    setShowAchievements(!showAchievements);
+  };
+
   return (
     <div 
       className="absolute bg-white rounded-lg shadow-lg overflow-hidden"
@@ -172,7 +231,7 @@ const BankPanel: React.FC<BankPanelProps> = ({
         <div className="flex space-x-2">
           <button 
             className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
-            onClick={() => setShowTradeInterface(!showTradeInterface)}
+            onClick={toggleTradeInterface}
           >
             {showTradeInterface ? 'Hide Trade' : 'Trade'}
           </button>
@@ -293,95 +352,161 @@ const BankPanel: React.FC<BankPanelProps> = ({
           ))}
         </div>
 
-        {/* Development cards */}
-        <div className="mt-4">
+        {/* Development Cards */}
+        <div className="p-3 border-t border-gray-200">
           <div className="flex justify-between items-center mb-2">
             <h3 className="text-md font-semibold">Development Cards</h3>
-            <span className="text-sm text-gray-600">{totalDevelopmentCards} remaining</span>
+            <button 
+              className="text-xs text-blue-600 hover:text-blue-800"
+              onClick={toggleDevCards}
+            >
+              {showDevCards ? 'Hide' : 'Show'}
+            </button>
           </div>
-
-          <div className="relative mb-4">
-            <div className="bg-purple-100 border border-purple-300 rounded-md p-3 flex items-center justify-between">
-              <div className="flex items-center">
-                <span className="text-xl mr-2">🃏</span>
-                <span className="font-medium">Development Card</span>
+          
+          {showDevCards && (
+            <>
+              <div className="grid grid-cols-5 gap-2 mb-3">
+                {Object.entries(developmentCards).map(([cardType, count]) => (
+                  <div 
+                    key={cardType} 
+                    className="bg-gray-50 border border-gray-200 rounded-md p-2 flex flex-col items-center"
+                    title={DevelopmentCardNames[cardType as DevelopmentCardType]}
+                  >
+                    <span className="text-xl">{DevelopmentCardEmojis[cardType as DevelopmentCardType]}</span>
+                    <div className="mt-1 text-center">
+                      <span className="text-sm font-medium">{count}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <button
-                className={`px-3 py-1 rounded-md text-sm font-medium ${
-                  canBuyDevelopmentCard 
-                    ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                }`}
-                onClick={onBuyDevelopmentCard}
-                disabled={!canBuyDevelopmentCard}
-                onMouseEnter={() => setShowCosts(true)}
-                onMouseLeave={() => setShowCosts(false)}
-              >
-                Buy
-              </button>
-            </div>
-
-            {/* Cost tooltip */}
-            {showCosts && (
-              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-2 z-20">
-                <div className="text-xs font-medium mb-1">Cost:</div>
-                <div className="flex space-x-2">
-                  {Object.entries(DEVELOPMENT_CARD_COST).map(([resource, cost]) => (
-                    cost > 0 && (
-                      <div key={resource} className="flex items-center">
-                        <span className="mr-1">{ResourceEmojis[resource as ResourceType]}</span>
-                        <span>{cost}</span>
-                      </div>
-                    )
-                  ))}
+              
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <span className="text-sm mr-2">Cost:</span>
+                  <div className="flex space-x-1">
+                    {Object.entries(DEVELOPMENT_CARD_COST).map(([resource, count]) => 
+                      count > 0 ? (
+                        <div key={resource} className="flex items-center">
+                          <span className="text-sm">{count}</span>
+                          <span className="ml-1">{ResourceEmojis[resource as ResourceType]}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
                 </div>
+                
+                <button
+                  className={`px-3 py-1 rounded text-sm ${
+                    canBuyDevelopmentCard 
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  }`}
+                  onClick={onBuyDevelopmentCard}
+                  disabled={!canBuyDevelopmentCard}
+                >
+                  Buy Card
+                </button>
               </div>
-            )}
-          </div>
-
-          {/* Development card types */}
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(developmentCards).map(([cardType, count]) => (
-              <div 
-                key={cardType}
-                className="bg-gray-50 border border-gray-200 rounded-md p-2 flex items-center"
-              >
-                <span className="text-xl mr-2">{DevelopmentCardEmojis[cardType as DevelopmentCardType]}</span>
-                <div>
-                  <div className="text-sm font-medium">{DevelopmentCardNames[cardType as DevelopmentCardType]}</div>
-                  <div className="text-xs text-gray-600">{count} cards</div>
-                </div>
-              </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
 
-        {/* Building costs reference */}
-        <div className="mt-4 border-t border-gray-200 pt-3">
-          <h3 className="text-md font-semibold mb-2">Building Costs</h3>
-          <div className="space-y-2">
-            {Object.entries(BUILDING_COSTS).map(([structureType, costs]) => (
-              <div key={structureType} className="bg-gray-50 border border-gray-200 rounded-md p-2">
-                <div className="flex items-center mb-1">
-                  <span className="text-lg mr-2">
-                    {structureType === StructureType.Road ? '🛣️' : 
-                     structureType === StructureType.Settlement ? '🏠' : '🏙️'}
-                  </span>
-                  <span className="font-medium">{structureType}</span>
+        {/* Building Costs */}
+        <div className="p-3 border-t border-gray-200">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-md font-semibold">Building Costs</h3>
+            <button 
+              className="text-xs text-blue-600 hover:text-blue-800"
+              onClick={toggleBuildingCosts}
+            >
+              {showBuildingCosts ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          
+          {showBuildingCosts && (
+            <div className="grid grid-cols-1 gap-2">
+              {Object.entries(BUILDING_COSTS).map(([structureType, costs]) => (
+                <div key={structureType} className="flex items-center justify-between bg-gray-50 p-2 rounded-md">
+                  <div className="flex items-center">
+                    <span className="text-xl mr-2">
+                      {structureType === StructureType.Road ? '🛣️' : 
+                       structureType === StructureType.Settlement ? '🏠' : 
+                       structureType === StructureType.City ? '🏙️' : ''}
+                    </span>
+                    <span className="text-sm font-medium">{structureType}</span>
+                  </div>
+                  <div className="flex space-x-1">
+                    {Object.entries(costs).map(([resource, count]) => 
+                      count > 0 ? (
+                        <div key={resource} className="flex items-center">
+                          <span className="text-sm">{count}</span>
+                          <span className="ml-1">{ResourceEmojis[resource as ResourceType]}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
                 </div>
-                <div className="flex space-x-2">
-                  {Object.entries(costs).map(([resource, cost]) => (
-                    cost > 0 && (
-                      <div key={resource} className="flex items-center">
-                        <span className="mr-1">{ResourceEmojis[resource as ResourceType]}</span>
-                        <span>{cost}</span>
-                      </div>
-                    )
-                  ))}
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Special Achievements */}
+        <div className="p-3 border-t border-gray-200">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-md font-semibold">Special Achievements</h3>
+            <button 
+              className="text-xs text-blue-600 hover:text-blue-800"
+              onClick={toggleAchievements}
+            >
+              {showAchievements ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          
+          {showAchievements && (
+            <div className="grid grid-cols-1 gap-2">
+              {/* Longest Road */}
+              <div className="flex items-center justify-between bg-blue-50 p-2 rounded-md">
+                <div className="flex items-center">
+                  <span className="text-xl mr-2">🛣️</span>
+                  <div>
+                    <span className="text-sm font-medium">Longest Road</span>
+                    <div className="text-xs text-gray-600">+2 Victory Points</div>
+                  </div>
+                </div>
+                <div className="text-sm font-medium">
+                  {hasLongestRoad !== null && players[hasLongestRoad] ? (
+                    <span className={`px-2 py-1 rounded bg-${players[hasLongestRoad].color}-100 text-${players[hasLongestRoad].color}-800`}>
+                      {players[hasLongestRoad].name}
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">Unclaimed</span>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
+              
+              {/* Largest Army */}
+              <div className="flex items-center justify-between bg-red-50 p-2 rounded-md">
+                <div className="flex items-center">
+                  <span className="text-xl mr-2">⚔️</span>
+                  <div>
+                    <span className="text-sm font-medium">Largest Army</span>
+                    <div className="text-xs text-gray-600">+2 Victory Points</div>
+                  </div>
+                </div>
+                <div className="text-sm font-medium">
+                  {hasLargestArmy !== null && players[hasLargestArmy] ? (
+                    <span className={`px-2 py-1 rounded bg-${players[hasLargestArmy].color}-100 text-${players[hasLargestArmy].color}-800`}>
+                      {players[hasLargestArmy].name}
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">Unclaimed</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
