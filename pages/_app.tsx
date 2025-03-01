@@ -1,10 +1,13 @@
-import type { AppProps } from 'next/app'
-import '../styles/globals.css'
+import '../styles/globals.css';
+import type { AppProps } from 'next/app';
+import ErrorBoundary from '../components/ErrorBoundary';
 
-export default function App({ Component, pageProps }: AppProps) {
+function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <div className="user-select-none">
+    <ErrorBoundary>
       <Component {...pageProps} />
-    </div>
-  )
-} 
+    </ErrorBoundary>
+  );
+}
+
+export default MyApp; 

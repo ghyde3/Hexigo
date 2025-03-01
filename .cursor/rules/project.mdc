@@ -1,11 +1,9 @@
 ---
-description: 
+description: global
 globs: 
 alwaysApply: true
 ---
 
 # Your rule content
 
-- You can @ files here
-- You can use markdown but dont have to
-You don't have to "npm run dev" every time, just let me know if I need to run it.
+Do not run "npm run dev", just let me know if it needs to be run.

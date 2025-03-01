@@ -19,13 +19,21 @@ export default function Home() {
           A digital implementation of a hexagonal tile-based strategy game.
         </p>
 
-        <Link href="/game">
-          <div className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors duration-200">
-            Start Game
-          </div>
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+          <Link href="/game">
+            <div className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors duration-200">
+              Start Game
+            </div>
+          </Link>
+          
+          <Link href="/builder">
+            <div className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors duration-200">
+              Board Builder
+            </div>
+          </Link>
+        </div>
         
-        <div className="mt-8 grid grid-cols-3 gap-4">
+        <div className="mt-4 grid grid-cols-3 gap-4">
           <div className="bg-brick p-4 rounded-lg text-white">
             <span className="text-2xl">🧱</span>
             <p>Brick</p>
