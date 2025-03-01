@@ -172,7 +172,7 @@ const GameLog: React.FC<GameLogProps> = ({
       {/* Log entries */}
       <div 
         ref={logContainerRef}
-        className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50"
+        className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50 chat-log"
       >
         {filteredEntries.length === 0 ? (
           <div className="text-gray-500 text-center py-4">No events to display</div>

@@ -63,6 +63,16 @@ const CatanGameComponent: React.FC<{
   const [selectedPlayer, setSelectedPlayer] = useState(0);
   const [isEditMode, setIsEditMode] = useState(false);
   
+  // Check for debug toolbar environment variable - default to true if not set
+  const [showDebugToolbar] = useState(() => {
+    // Check if we're in the browser
+    if (typeof window !== 'undefined') {
+      // Read from environment variable, default to true if not set
+      return process.env.NEXT_PUBLIC_SHOW_DEBUG_TOOLBAR !== 'false';
+    }
+    return true; // Default to showing in development
+  });
+  
   // Panel positions with default values
   const [playerPanelPosition, setPlayerPanelPosition] = useState({ x: 20, y: 20 });
   const [turnControlsPosition, setTurnControlsPosition] = useState({ x: window.innerWidth / 2 - 150, y: window.innerHeight - 200 });
@@ -1020,6 +1030,22 @@ const CatanGameComponent: React.FC<{
         hasLargestArmy={G.largestArmyPlayer}
         players={G.players}
       />
+      
+      {/* Debug Toolbar */}
+      {showDebugToolbar && (
+        <div className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white p-2 flex items-center justify-between z-50">
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-sm">Debug Tools:</span>
+            <button 
+              className={`px-3 py-1 rounded text-sm font-medium ${isEditMode ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+              onClick={handleToggleEditMode}
+            >
+              {isEditMode ? 'Exit Editor Mode' : 'Board Editor Mode'}
+            </button>
+          </div>
+          <div className="text-xs text-gray-400">Development Version</div>
+        </div>
+      )}
       
       {/* End Game Modal */}
       <EndGameModal
